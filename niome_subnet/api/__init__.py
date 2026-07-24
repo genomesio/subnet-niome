@@ -116,8 +116,8 @@ def submit_validation_result(self, miner_scores: list[MinerScoreDto]) -> None:
     }
     post(self, config.MINER_SCORE_URL, payload)
 
-def upload_final_submission_to_server(self, uids: list[int]) -> None:
-    """Download submissions by UIDs from S3, merge them, and upload to server."""
+def upload_final_submissions_to_server(self, uids: list[int]) -> None:
+    """Download submissions by UIDs from S3, and upload to server."""
     try:
         s3_client = boto3.client(
             "s3",
@@ -126,50 +126,31 @@ def upload_final_submission_to_server(self, uids: list[int]) -> None:
             region_name=config.AWS_REGION,
         )
         
-        merged_submissions = []
+        submissions = []
         
         # Download and merge submissions from S3
         for uid in uids:
             try:
                 # Construct S3 key for the submission file
                 s3_key = f"niome/{uid}.json"
-                local_path = f"data/temp_submission.json"
                 
-                # Download from S3
-                s3_client.download_file(
-                    config.AWS_S3_BUCKET,
-                    s3_key,
-                    local_path
-                )
-                
-                # Load and merge the submission
-                with open(local_path, "r") as f:
-                    submission_data = json.load(f)
-                    
-                    # If submission is a list, extend merged submissions
-                    if isinstance(submission_data, list):
-                        merged_submissions.extend(submission_data)
-                    # If submission is a dict, append it
-                    else:
-                        merged_submissions.append(submission_data)
+                obj = s3_client.get_object(Bucket=config.AWS_S3_BUCKET, Key=s3_key)
+                submission_data = json.loads(obj['Body'].read().decode('utf-8'))
+                submissions.append({
+                    "uid": uid,
+                    "submission": submission_data,
+                })
             except Exception as e:
-                bt.logging.error(f"Error downloading submission for UID {uid}: {e}")
+                bt.logging.error(f"Error processing UID {uid}: {e}")
                 continue
-        
-        if not merged_submissions:
-            bt.logging.warning("No submissions to upload")
-            return
-        
-        # Upload merged submissions to server
-        bt.logging.info(f"Uploading {len(merged_submissions)} merged submissions to server")
+
         payload = {
             "task_id": self.task_id,
-            "submission": merged_submissions,
+            "submissions": submissions,
         }
         
         post(self, config.MINER_SUBMISSION_URL, payload)
-        bt.logging.info(f"Successfully uploaded merged submissions")
-        
+        bt.logging.info(f"Successfully uploaded final submissions for UIDs: {uids}")
     except Exception as e:
-        bt.logging.error(f"Error in upload_submissions_to_server: {e}")
+        bt.logging.error(f"Error in upload_final_submissions_to_server: {e}")
         raise e

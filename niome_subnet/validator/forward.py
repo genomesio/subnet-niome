@@ -26,7 +26,7 @@ import time
 
 from niome_subnet.api import (
     fetch_task, 
-    upload_final_submission_to_server, 
+    upload_final_submissions_to_server, 
 )
 from niome_subnet.genomics.validation import benchmark_submission
 from niome_subnet.protocol import GenomicsTaskSynapse
@@ -133,7 +133,7 @@ async def run_validation(self):
         owner_uid = self.metagraph.hotkeys.index(config.OWNER_HOTKEY)
         uids_without_owner = [uid for uid in self.uids if uid != owner_uid]
         if len(uids_without_owner) > 0:
-            upload_final_submission_to_server(self, uids_without_owner)
+            upload_final_submissions_to_server(self, uids_without_owner)
         bt.logging.info("Finished validation.")
     except Exception as e:
         bt.logging.error(f"Error during validation: {e}")
