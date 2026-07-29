@@ -137,7 +137,7 @@ def upload_final_submissions_to_server(self, uids: list[int]) -> None:
                 obj = s3_client.get_object(Bucket=config.AWS_S3_BUCKET, Key=s3_key)
                 submission_data = json.loads(obj['Body'].read().decode('utf-8'))
                 submissions.append({
-                    "uid": uid,
+                    "uid": int(uid),
                     "submission": submission_data,
                 })
             except Exception as e:

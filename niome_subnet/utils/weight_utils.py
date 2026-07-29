@@ -99,7 +99,7 @@ def convert_weights_and_uids_for_emit(
         )
         if uint16_val != 0:  # Filter zeros
             weight_vals.append(uint16_val)
-            weight_uids.append(uid_i)
+            weight_uids.append(int(uid_i))
 
     return weight_uids, weight_vals
 
