@@ -3,55 +3,68 @@
 # Copyright © 2025 Genomes.io
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
-# documentation files (the “Software”), to deal in the Software without restriction, including without limitation
+# documentation files (the "Software"), to deal in the Software without restriction, including without limitation
 # the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software,
 # and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
 # The above copyright notice and this permission notice shall be included in all copies or substantial portions of
 # the Software.
 
-# THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO
 # THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
 # THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 # OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
 
 import asyncio
-import bittensor as bt
+import logging
 import boto3
+import bittensor as bt
+import httpx
 import niome_subnet.utils.settings as config
 import numpy as np
 import os
 import time
 
 from niome_subnet.api import (
-    fetch_task, 
-    upload_final_submissions_to_server, 
+    fetch_task,
+    upload_final_submissions_to_server,
 )
 from niome_subnet.genomics.validation import benchmark_submission
 from niome_subnet.protocol import GenomicsTaskSynapse
 from niome_subnet.utils import get_miner_uids
 
+logger = logging.getLogger(__name__)
 
-async def query_axon(self, uid, axon, synapse):
-    """Query a single axon and return the response."""
+
+async def query_miner(self, uid: int, axon_endpoint: str, synapse: GenomicsTaskSynapse):
+    """Send task to a single miner via HTTP and return the response."""
     try:
-        await self.dendrite.forward(
-            axons=axon, synapse=synapse, deserialize=False, timeout=config.FORWARD_TIMEOUT
+        url = f"http://{axon_endpoint}/forward"
+        body = synapse.model_dump_json().encode()
+        headers = bt.http_auth.sign(
+            self.wallet,
+            method="POST",
+            path="/forward",
+            body=body,
         )
+        headers["Content-Type"] = "application/json"
+        async with httpx.AsyncClient(timeout=config.FORWARD_TIMEOUT) as client:
+            resp = await client.post(url, content=body, headers=headers)
+            resp.raise_for_status()
     except Exception as e:
-        bt.logging.error(f"Error querying axon {axon}: {e}")
+        logger.error(f"Error querying miner {uid} at {axon_endpoint}: {e}")
         return None
 
 async def broadcast_task(self):
-    bt.logging.info(f"Broadcasting task ...")
+    logger.info("Broadcasting task ...")
     try:
         os.makedirs("data", exist_ok=True)
 
         task = fetch_task(self)
         self.task_id = task.id
-        bt.logging.info(f"Fetched task {task.id}")
-        
+        logger.info(f"Fetched task {task.id}")
+
         self.validated_uids = []
         self.save_state()
 
@@ -66,8 +79,9 @@ async def broadcast_task(self):
         )
 
         for uid in miner_uids:
-            axon = self.metagraph.axons[uid]
-            if axon.ip == '0.0.0.0':
+            neuron = self.metagraph.neurons[uid]
+            axon_endpoint = neuron.axon
+            if axon_endpoint is None:
                 continue
 
             presigned_url = s3_client.generate_presigned_url(
@@ -81,21 +95,21 @@ async def broadcast_task(self):
                 presigned_url=presigned_url,
                 timeout=config.FORWARD_TIMEOUT,
             )
-            await query_axon(self, uid, axon, synapse)
+            await query_miner(self, uid, axon_endpoint, synapse)
     except Exception as e:
-        bt.logging.error(f"Error during broadcasting: {e}")
+        logger.error(f"Error during broadcasting: {e}")
 
 async def run_validation(self):
-    bt.logging.info(f"Validating miners' submissions ...")
+    logger.info("Validating miners' submissions ...")
     try:
         os.makedirs("data", exist_ok=True)
         task = fetch_task(self)
         self.task_id = task.id
-        bt.logging.info(f"Fetched task {task.id}")
+        logger.info(f"Fetched task {task.id}")
 
         miner_uids = get_miner_uids(self)
         scores = []
-        
+
         s3_client = boto3.client(
             "s3",
             aws_access_key_id=config.AWS_ACCESS_KEY_ID,
@@ -113,30 +127,30 @@ async def run_validation(self):
                 s3_client.download_file(
                     config.AWS_S3_BUCKET,
                     f"niome/{uid}.json",
-                    config.MINER_SUBMISSION_PATH, 
+                    config.MINER_SUBMISSION_PATH,
                 )
                 miner_score = benchmark_submission(uid)
                 scores.append(miner_score)
                 self.save_state()
-                
+
                 s3_client.upload_file(
                     Filename=config.MINER_SUBMISSION_PATH,
                     Bucket=config.AWS_S3_BUCKET,
                     Key=f"niome/{uid}.json",
                 )
-            except Exception as e:
+            except Exception:
                 continue
 
-        bt.logging.info(f"Scores: {scores}")
+        logger.info(f"Scores: {scores}")
 
         self.set_weights(scores, self.task_id)
         owner_uid = self.metagraph.hotkeys.index(config.OWNER_HOTKEY)
         uids_without_owner = [uid for uid in self.uids if uid != owner_uid]
         if len(uids_without_owner) > 0:
             upload_final_submissions_to_server(self, uids_without_owner)
-        bt.logging.info("Finished validation.")
+        logger.info("Finished validation.")
     except Exception as e:
-        bt.logging.error(f"Error during validation: {e}")
+        logger.error(f"Error during validation: {e}")
 
 async def forward(self):
     """
@@ -152,13 +166,13 @@ async def forward(self):
         if config.BURNING_RATE == 1.0 and not self.are_weights_committed:
             self.are_weights_committed = True
             self.set_weights([], "")
-            self.subtensor.set_weights(
-                wallet=self.wallet,
-                netuid=self.config.netuid,
-                uids=self.uids,
-                weights=self.weights,
-                wait_for_finalization=False,
-                wait_for_inclusion=False,
+            self.subtensor.execute(
+                bt.SetWeights(
+                    netuid=self.config.netuid,
+                    uids=self.uids,
+                    weights=self.weights,
+                ),
+                self.wallet,
             )
         else:
             blocks = (self.block - config.BASE_BLOCK_NUMBER) % config.INTERVAL_BLOCKS
@@ -173,6 +187,6 @@ async def forward(self):
                 self.are_weights_committed = False
                 asyncio.create_task(run_validation(self))
     except Exception as e:
-        bt.logging.error(f"Error during forward step: {e}")
+        logger.error(f"Error during forward step: {e}")
 
     time.sleep(5)

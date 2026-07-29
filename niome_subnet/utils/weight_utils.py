@@ -1,10 +1,12 @@
-import bittensor as bt
+import logging
 import numpy as np
 from typing import Any, Tuple, List, Union
 from niome_subnet.utils.settings import (
     SCORE_DISTRIBUTION,
     TOP_MINER_COUNT,
 )
+
+logger = logging.getLogger(__name__)
 
 U32_MAX = 4294967295
 U16_MAX = 65535
@@ -88,7 +90,7 @@ def convert_weights_and_uids_for_emit(
             )
         )
     if np.sum(weights) == 0:
-        bt.logging.debug("nothing to set on chain")
+        logger.debug("nothing to set on chain")
         return [], []  # Nothing to set on chain.
 
     weight_vals = []
@@ -109,8 +111,8 @@ def process_weights_for_netuid(
     weights: np.ndarray,
     netuid: int,
     owner_uid: int,
-    subtensor: "bt.Subtensor",
-    metagraph: "bt.metagraph" = None,
+    subtensor=None,
+    metagraph=None,
     exclude_quantile: int = 0,
 ) -> Union[
     tuple[
@@ -128,7 +130,7 @@ def process_weights_for_netuid(
 ]:
     # Get latest metagraph from chain if metagraph is None.
     if metagraph is None:
-        metagraph = subtensor.metagraph(netuid)
+        metagraph = subtensor.subnets.metagraph(netuid)
 
     # Cast weights to floats.
     if not isinstance(weights, np.ndarray) or weights.dtype != np.float32:
@@ -136,8 +138,8 @@ def process_weights_for_netuid(
 
     # Network configuration parameters from subtensor.
     quantile = exclude_quantile / U16_MAX
-    min_allowed_weights = subtensor.min_allowed_weights(netuid=netuid)
-    max_weight_limit = subtensor.max_weight_limit(netuid=netuid)
+    min_allowed_weights = subtensor.hyperparameters.min_allowed_weights(netuid)
+    max_weight_limit = subtensor.hyperparameters.max_weight_limit(netuid)
 
     # Find all non-zero weights.
     non_zero_weight_idx = np.argwhere(weights > 0).squeeze()
@@ -145,44 +147,41 @@ def process_weights_for_netuid(
     non_zero_weight_uids = uids[non_zero_weight_idx]
     non_zero_weights = weights[non_zero_weight_idx]
 
+    n = len(metagraph)
+
     if non_zero_weights.size == 0:
-        # Create a weight array of zeros for all miners
-        all_weights = np.zeros(metagraph.n, dtype=np.float32)
-        # Find the index of owner_uid in the uids array
+        all_weights = np.zeros(n, dtype=np.float32)
         owner_indices = np.where(uids == owner_uid)[0]
         if len(owner_indices) == 0:
-            bt.logging.error(
+            logger.error(
                 f"owner_uid {owner_uid} not found in uids. "
                 "Falling back to uniform distribution."
             )
-            final_weights = np.ones(metagraph.n) / metagraph.n
+            final_weights = np.ones(n) / n
             return np.arange(len(final_weights)), final_weights
         owner_idx = owner_indices[0]
-        # Give raw weight 1.0 to the owner (will be normalized to max_weight_limit)
         all_weights[owner_idx] = 1.0
-        # Normalize to respect max_weight_limit
         normalized_weights = normalize_max_weight(x=all_weights, limit=max_weight_limit)
-        # Find which UIDs now have non-zero weights (should be only owner_uid)
         final_non_zero = np.where(normalized_weights > 0)[0]
         final_uids = uids[final_non_zero]
         final_weights = normalized_weights[final_non_zero]
         return final_uids, final_weights
 
-    if metagraph.n < min_allowed_weights:
-        bt.logging.warning(
+    if n < min_allowed_weights:
+        logger.warning(
             "Metagraph size smaller than min_allowed_weights, returning all ones."
         )
-        final_weights = np.ones(metagraph.n) / metagraph.n
+        final_weights = np.ones(n) / n
         return np.arange(len(final_weights)), final_weights
 
     if non_zero_weights.size < min_allowed_weights:
-        bt.logging.warning(
+        logger.warning(
             "Number of non-zero weights less than min_allowed_weights, "
             "creating minimal weights for all."
         )
-        weights = np.ones(metagraph.n) * 1e-5
+        weights = np.ones(n) * 1e-5
         weights[non_zero_weight_idx] += non_zero_weights
-        bt.logging.debug("final_weights", weights)
+        logger.debug("final_weights: %s", weights)
         normalized_weights = normalize_max_weight(x=weights, limit=max_weight_limit)
         return np.arange(len(normalized_weights)), normalized_weights
 
@@ -201,7 +200,7 @@ def process_weights_for_netuid(
     normalized_weights = normalize_max_weight(
         x=non_zero_weights, limit=max_weight_limit
     )
-    bt.logging.debug("final_weights", normalized_weights)
+    logger.debug("final_weights: %s", normalized_weights)
 
     return non_zero_weight_uids, normalized_weights
 
@@ -213,7 +212,7 @@ def process_scores_linear(scores: np.ndarray) -> np.ndarray:
     - Miners with zero or negative scores receive zero weight.
     - Output always sums to exactly 1.0 (if any positive scores exist).
     """
-    bt.logging.debug("Processing scores", scores)
+    logger.debug("Processing scores: %s", scores)
 
     weights = np.zeros_like(scores, dtype=np.float32)
 

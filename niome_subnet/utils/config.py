@@ -19,9 +19,22 @@
 import os
 import subprocess
 import argparse
-import bittensor as bt
 from .logging import setup_events_logger
 from niome_subnet.utils.settings import TESTNET_UID
+
+
+def _nest_config(ns):
+    """Convert flat argparse Namespace with dotted keys into nested Namespaces."""
+    result = argparse.Namespace()
+    for key, val in vars(ns).items():
+        parts = key.split('.')
+        current = result
+        for part in parts[:-1]:
+            if not hasattr(current, part):
+                setattr(current, part, argparse.Namespace())
+            current = getattr(current, part)
+        setattr(current, parts[-1], val)
+    return result
 
 
 def is_cuda_available():
@@ -42,15 +55,13 @@ def is_cuda_available():
     return "cpu"
 
 
-def check_config(cls, config: "bt.Config"):
+def check_config(cls, config):
     r"""Checks/validates the config namespace object."""
-    bt.logging.check_config(config)
-
     full_path = os.path.expanduser(
         "{}/{}/{}/netuid{}/{}".format(
-            config.logging.logging_dir,  
-            config.wallet.name,
-            config.wallet.hotkey,
+            os.path.expanduser("~/.bittensor/miners"),
+            config.wallet,
+            config.wallet_hotkey,
             config.netuid,
             config.neuron.name,
         )
@@ -60,17 +71,27 @@ def check_config(cls, config: "bt.Config"):
         os.makedirs(config.neuron.full_path, exist_ok=True)
 
     if not config.neuron.dont_save_events:
-        # Add custom event logger for the events.
-        events_logger = setup_events_logger(
+        setup_events_logger(
             config.neuron.full_path, config.neuron.events_retention_size
         )
-        bt.logging.register_primary_logger(events_logger.name)
 
 
 def add_args(cls, parser):
     """
     Adds relevant arguments to the parser for operation.
     """
+    parser.add_argument("--wallet", type=str, help="Wallet name", default="default")
+    parser.add_argument("--wallet-hotkey", type=str, help="Wallet hotkey name", default="default")
+    parser.add_argument("--network", type=str, help="Bittensor network (finney/test/local)", default="finney")
+    parser.add_argument("--endpoint", type=str, help="Subtensor websocket endpoint", default=None)
+
+    # Legacy v10 aliases — silently map to the new flags
+    parser.add_argument("--wallet.name", dest="wallet", help=argparse.SUPPRESS)
+    parser.add_argument("--wallet.hotkey", dest="wallet_hotkey", help=argparse.SUPPRESS)
+    parser.add_argument("--subtensor.network", dest="network", help=argparse.SUPPRESS)
+    parser.add_argument("--subtensor.chain_endpoint", dest="endpoint", help=argparse.SUPPRESS)
+    parser.add_argument("--logging.debug", dest="_logging_debug", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--logging.trace", dest="_logging_trace", action="store_true", help=argparse.SUPPRESS)
 
     parser.add_argument("--netuid", type=int, help="Subnet netuid", default=TESTNET_UID)
 
@@ -259,9 +280,5 @@ def config(cls):
     Returns the configuration object specific to this miner or validator after adding relevant arguments.
     """
     parser = argparse.ArgumentParser()
-    bt.Wallet.add_args(parser)
-    bt.Subtensor.add_args(parser)
-    bt.logging.add_args(parser)
-    bt.Axon.add_args(parser)
     cls.add_args(parser)
-    return bt.Config(parser)
+    return _nest_config(parser.parse_args())

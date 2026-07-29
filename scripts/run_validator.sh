@@ -7,7 +7,7 @@
 #
 # Usage:
 #   pm2 start run_validator.sh --name niome_validator --no-autorestart \
-#       -- --wallet.name <NAME> --wallet.hotkey <HOTKEY> [--wandb.api_key <KEY>]
+#       -- --wallet <NAME> --wallet-hotkey <HOTKEY> [--wandb.api_key <KEY>]
 #
 #   Or run interactively (prompts for credentials):
 #   ./run_validator.sh
@@ -33,30 +33,29 @@ WALLET_NAME=""
 WALLET_HOTKEY=""
 WANDB_API_KEY=""
 
-# Parse --wallet.name, --wallet.hotkey, --wandb.api_key from script arguments
+# Parse --wallet, --wallet-hotkey, --wandb.api_key from script arguments
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --wallet.name)   WALLET_NAME="$2";   shift 2 ;;
-        --wallet.hotkey) WALLET_HOTKEY="$2"; shift 2 ;;
+        --wallet)        WALLET_NAME="$2";   shift 2 ;;
+        --wallet-hotkey) WALLET_HOTKEY="$2"; shift 2 ;;
         --wandb.api_key) WANDB_API_KEY="$2"; shift 2 ;;
         *) shift ;;
     esac
 done
 
 if [[ -z "$WALLET_NAME" ]]; then
-    echo "ERROR: --wallet.name is required." >&2; exit 1
+    echo "ERROR: --wallet is required." >&2; exit 1
 fi
 
 if [[ -z "$WALLET_HOTKEY" ]]; then
-    echo "ERROR: --wallet.hotkey is required." >&2; exit 1
+    echo "ERROR: --wallet-hotkey is required." >&2; exit 1
 fi
 
 VALIDATOR_ARGS=(
     --netuid 289
-    --subtensor.network test
-    --wallet.name "$WALLET_NAME"
-    --wallet.hotkey "$WALLET_HOTKEY"
-    --logging.debug
+    --network test
+    --wallet "$WALLET_NAME"
+    --wallet-hotkey "$WALLET_HOTKEY"
 )
 if [[ -n "$WANDB_API_KEY" ]]; then
     VALIDATOR_ARGS+=(--wandb.api_key "$WANDB_API_KEY")

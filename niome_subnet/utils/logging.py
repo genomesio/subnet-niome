@@ -1,9 +1,10 @@
-import bittensor as bt
-import os
 import logging
+import os
 import wandb
 from logging.handlers import RotatingFileHandler
 from niome_subnet.utils.settings import WANDB_MAX_LOGS
+
+logger = logging.getLogger(__name__)
 
 EVENTS_LEVEL_NUM = 38
 DEFAULT_LOG_BACKUP_COUNT = 10
@@ -11,13 +12,13 @@ DEFAULT_LOG_BACKUP_COUNT = 10
 def maybe_reset_wandb(validator):
     if validator.config.wandb.off or wandb.run is None:
         return
-    
+
     log_file_path = os.path.join(wandb.run.dir, "output.log")
     with open(log_file_path, "rb") as f:
         num_lines = sum(1 for _ in f)
 
     if num_lines > WANDB_MAX_LOGS:
-        bt.logging.info("Restarting W&B to limit the number of logs per run!...")
+        logger.info("Restarting W&B to limit the number of logs per run!...")
         wandb.run.finish()
         validator.init_wandb()
 

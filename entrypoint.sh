@@ -5,7 +5,7 @@
 #
 # Usage:
 #   chmod +x entrypoint.sh
-#   ./entrypoint.sh --wallet.name <NAME> --wallet.hotkey <HOTKEY> [--wandb.api_key <KEY>]
+#   ./entrypoint.sh --wallet <NAME> --wallet-hotkey <HOTKEY> [--wandb.api_key <KEY>]
 
 set -euo pipefail
 
@@ -25,8 +25,8 @@ WANDB_API_KEY=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --wallet.name)   WALLET_NAME="$2";   shift 2 ;;
-        --wallet.hotkey) WALLET_HOTKEY="$2"; shift 2 ;;
+        --wallet)        WALLET_NAME="$2";   shift 2 ;;
+        --wallet-hotkey) WALLET_HOTKEY="$2"; shift 2 ;;
         --wandb.api_key) WANDB_API_KEY="$2"; shift 2 ;;
         *) echo "Unknown argument: $1"; exit 1 ;;
     esac
@@ -47,11 +47,11 @@ if [[ -z "$WALLET_NAME" && -z "$WALLET_HOTKEY" ]]; then
 
     read -rp "WANDB API Key (leave blank to skip): " WANDB_API_KEY
 else
-    [[ -z "$WALLET_NAME" ]]   && { echo "Error: --wallet.name is required.";   exit 1; }
-    [[ -z "$WALLET_HOTKEY" ]] && { echo "Error: --wallet.hotkey is required."; exit 1; }
+    [[ -z "$WALLET_NAME" ]]   && { echo "Error: --wallet is required.";        exit 1; }
+    [[ -z "$WALLET_HOTKEY" ]] && { echo "Error: --wallet-hotkey is required."; exit 1; }
 fi
 
-VALIDATOR_ARGS=(--wallet.name "$WALLET_NAME" --wallet.hotkey "$WALLET_HOTKEY")
+VALIDATOR_ARGS=(--wallet "$WALLET_NAME" --wallet-hotkey "$WALLET_HOTKEY")
 if [[ -n "$WANDB_API_KEY" ]]; then
     VALIDATOR_ARGS+=(--wandb.api_key "$WANDB_API_KEY")
 fi
