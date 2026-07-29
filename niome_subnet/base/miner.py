@@ -28,7 +28,7 @@ import uvicorn
 from fastapi import FastAPI, Request, HTTPException
 
 from niome_subnet.base.neuron import BaseNeuron
-from niome_subnet.utils import add_miner_args
+from niome_subnet.utils import add_miner_args, fetch_metagraph_with_retry
 
 from typing import Union
 
@@ -212,4 +212,4 @@ class BaseMinerNeuron(BaseNeuron):
     def resync_metagraph(self):
         """Resyncs the metagraph."""
         logger.info("resync_metagraph()")
-        self.metagraph = self.subtensor.subnets.metagraph(self.netuid)
+        self.metagraph = fetch_metagraph_with_retry(self.subtensor, self.netuid)

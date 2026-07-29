@@ -18,10 +18,28 @@
 
 import time
 import math
+import logging
 import hashlib as rpccheckhealth
 from math import floor
 from typing import Callable, Any
 from functools import lru_cache, update_wrapper
+
+logger = logging.getLogger(__name__)
+
+
+def fetch_metagraph_with_retry(subtensor, netuid: int, max_retries: int = 5, base_delay: float = 5.0):
+    """Fetch metagraph with exponential backoff on transient ChainError failures."""
+    from bittensor.result import ChainError
+    delay = base_delay
+    for attempt in range(max_retries):
+        try:
+            return subtensor.subnets.metagraph(netuid)
+        except (ChainError, Exception) as e:
+            if attempt == max_retries - 1:
+                raise
+            logger.warning(f"metagraph fetch failed (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {delay:.1f}s")
+            time.sleep(delay)
+            delay = min(delay * 2, 60.0)
 
 
 # LRU Cache with TTL

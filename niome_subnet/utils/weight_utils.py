@@ -5,6 +5,7 @@ from niome_subnet.utils.settings import (
     SCORE_DISTRIBUTION,
     TOP_MINER_COUNT,
 )
+from niome_subnet.utils.misc import fetch_metagraph_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +131,7 @@ def process_weights_for_netuid(
 ]:
     # Get latest metagraph from chain if metagraph is None.
     if metagraph is None:
-        metagraph = subtensor.subnets.metagraph(netuid)
+        metagraph = fetch_metagraph_with_retry(subtensor, netuid)
 
     # Cast weights to floats.
     if not isinstance(weights, np.ndarray) or weights.dtype != np.float32:

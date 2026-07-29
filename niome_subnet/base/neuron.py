@@ -22,7 +22,7 @@ from abc import ABC, abstractmethod
 import bittensor as bt
 
 from niome_subnet import __spec_version__ as spec_version
-from niome_subnet.utils import check_config, add_args, config, ttl_get_block
+from niome_subnet.utils import check_config, add_args, config, ttl_get_block, fetch_metagraph_with_retry
 from niome_subnet.mock import MockSubtensor, MockMetagraph
 
 from niome_subnet.utils.settings import BASE_BLOCK_NUMBER, INTERVAL_BLOCKS, WEIGHT_SET_BLOCK
@@ -90,11 +90,10 @@ class BaseNeuron(ABC):
                 name=self.config.wallet,
                 hotkey=self.config.wallet_hotkey,
             )
-            kwargs = {"network": self.config.network}
-            if self.config.endpoint:
-                kwargs["endpoint"] = self.config.endpoint
-            self.subtensor = bt.Subtensor(**kwargs)
-            self.metagraph = self.subtensor.subnets.metagraph(self.config.netuid)
+            # v11: Client takes network= for both named networks and raw ws:// endpoints.
+            network = self.config.endpoint if self.config.endpoint else self.config.network
+            self.subtensor = bt.Subtensor(network)
+            self.metagraph = fetch_metagraph_with_retry(self.subtensor, self.config.netuid)
 
         try:
             self.netuid = int(self.config.netuid)
