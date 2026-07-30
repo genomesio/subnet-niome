@@ -50,7 +50,7 @@ class MockSubtensor:
         def __init__(self, outer):
             self._outer = outer
 
-        def metagraph(self, netuid: int):
+        def metagraph(self, netuid: int, block: Optional[int] = None, *, commitments: bool = True):
             return MockMetagraph(netuid, subtensor=self._outer)
 
     @property

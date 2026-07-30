@@ -27,19 +27,55 @@ from functools import lru_cache, update_wrapper
 logger = logging.getLogger(__name__)
 
 
-def fetch_metagraph_with_retry(subtensor, netuid: int, max_retries: int = 5, base_delay: float = 5.0):
-    """Fetch metagraph with exponential backoff on transient ChainError failures."""
+# How far below the chain head a metagraph read is pinned.
+#
+# `subnets.metagraph()` with no `block=` lets bittensor pin the read itself:
+# `metagraph.fetch()` unconditionally does `view = await view.at()`, and
+# `Client.at(None)` resolves the *best* (unfinalized) head via
+# `chain_getHeader(None)`. Testnet runs ~2-3 blocks ahead of the finalized head,
+# so that height can still be reorged away — and when it is, the very next
+# `chain_getBlockHash(height)` returns null and the transport raises
+# `BlockNotFound: no block at height N`, surfaced as ChainError. bittensor
+# refuses to even cache number->hash above the finalized head for this reason
+# (see _transport/interface.py), `_substrate._read()` only falls back to an
+# archive node on StateDiscardedError (never BlockNotFound), and the `test`
+# network has no fallback/archive endpoints configured at all.
+#
+# Pinning explicitly at head - FINALITY_LAG keeps every read at or below the
+# finalized head, where block hashes are stable.
+FINALITY_LAG = 4
+
+
+def resolve_safe_block(subtensor, lag: int = FINALITY_LAG) -> int:
+    """A block height that is at or below the finalized head, so its hash is reorg-safe."""
+    return max(0, subtensor.block - lag)
+
+
+def fetch_metagraph_with_retry(subtensor, netuid: int, max_retries: int = 5, base_delay: float = 5.0, commitments: bool = False):
+    """Fetch the metagraph pinned to a reorg-safe block, retrying transient chain errors.
+
+    Each retry re-resolves the head and backs off deeper below it, so a chain
+    that reorged (or a node that briefly lags) is stepped away from rather than
+    hammered at the same doomed height.
+    """
     from bittensor.result import ChainError
     delay = base_delay
+    lag = FINALITY_LAG
+    block = None
     for attempt in range(max_retries):
         try:
-            return subtensor.subnets.metagraph(netuid)
-        except (ChainError, Exception) as e:
+            block = resolve_safe_block(subtensor, lag)
+            return subtensor.subnets.metagraph(netuid, block=block, commitments=commitments)
+        except ChainError as e:
             if attempt == max_retries - 1:
                 raise
-            logger.warning(f"metagraph fetch failed (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {delay:.1f}s")
+            logger.warning(
+                f"metagraph fetch at block {block} failed (attempt {attempt + 1}/{max_retries}): {e}. "
+                f"Retrying in {delay:.1f}s at head-{lag + 2}"
+            )
             time.sleep(delay)
             delay = min(delay * 2, 60.0)
+            lag += 2
 
 
 # LRU Cache with TTL
@@ -110,21 +146,15 @@ def _ttl_hash_gen(seconds: int):
 # 12 seconds updating block.
 @ttl_cache(maxsize=1, ttl=12)
 def ttl_get_block(self) -> int:
-    """
-    Retrieves the current block number from the blockchain. This method is cached with a time-to-live (TTL)
-    of 12 seconds, meaning that it will only refresh the block number from the blockchain at most every 12 seconds,
-    reducing the number of calls to the underlying blockchain interface.
-
-    Returns:
-        int: The current block number on the blockchain.
-
-    This method is useful for applications that need to access the current block number frequently and can
-    tolerate a delay of up to 12 seconds for the latest information. By using a cache with TTL, the method
-    efficiently reduces the workload on the blockchain interface.
-
-    Example:
-        current_block = ttl_get_block(self)
-
-    Note: self here is the miner or validator instance
-    """
-    return self.subtensor.block
+    """Fetch current block number with exponential-backoff retry on transient chain errors."""
+    from bittensor.result import ChainError
+    delay = 2.0
+    for attempt in range(5):
+        try:
+            return self.subtensor.block
+        except ChainError as e:
+            if attempt == 4:
+                raise
+            logger.warning(f"block fetch failed (attempt {attempt + 1}/5): {e}. Retrying in {delay:.1f}s")
+            time.sleep(delay)
+            delay = min(delay * 2, 30.0)

@@ -91,8 +91,9 @@ class BaseNeuron(ABC):
                 hotkey=self.config.wallet_hotkey,
             )
             # v11: Client takes network= for both named networks and raw ws:// endpoints.
+            # retry_forever keeps the WS alive through node hiccups.
             network = self.config.endpoint if self.config.endpoint else self.config.network
-            self.subtensor = bt.Subtensor(network)
+            self.subtensor = bt.Subtensor(network, retry_forever=True)
             self.metagraph = fetch_metagraph_with_retry(self.subtensor, self.config.netuid)
 
         try:

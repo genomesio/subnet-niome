@@ -212,4 +212,4 @@ class BaseMinerNeuron(BaseNeuron):
     def resync_metagraph(self):
         """Resyncs the metagraph."""
         logger.info("resync_metagraph()")
-        self.metagraph = fetch_metagraph_with_retry(self.subtensor, self.netuid)
+        self.metagraph = fetch_metagraph_with_retry(self.subtensor, self.netuid, commitments=False)

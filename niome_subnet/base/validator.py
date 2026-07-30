@@ -23,6 +23,7 @@ import copy
 import logging
 import numpy as np
 import threading
+import time
 
 from datetime import datetime, timezone
 from typing import List, Union
@@ -34,6 +35,7 @@ from niome_subnet.genomics.model import MinerScore, MinerScoreDto
 from niome_subnet.utils import (
     add_validator_args,
     convert_weights_and_uids_for_emit,
+    fetch_metagraph_with_retry,
     process_scores_linear,
     process_scores_top,
     process_weights_for_netuid,
@@ -127,43 +129,53 @@ class BaseValidatorNeuron(BaseNeuron):
         logger.info(f"Validator starting at block: {self.block}")
 
         # This loop maintains the validator's operations until intentionally stopped.
+        # A failed step must never end the loop: chain reads can fail transiently
+        # (node hiccup, reorg of the unfinalized tip), and the validator has to
+        # ride those out rather than exit and wait for pm2 to restart it.
         try:
             while True:
-                # Run multiple forwards concurrently.
-                self.loop.run_until_complete(self.concurrent_forward())
+                try:
+                    # Run multiple forwards concurrently.
+                    self.loop.run_until_complete(self.concurrent_forward())
 
-                # Check if we should exit.
-                if self.should_exit:
-                    break
+                    # Check if we should exit.
+                    if self.should_exit:
+                        break
 
-                if self.should_set_weights():
-                    self.load_state()
-                    self.subtensor.execute(
-                        bt.SetWeights(
-                            netuid=self.config.netuid,
-                            uids=self.uids,
-                            weights=[float(w) for w in self.weights],
-                        ),
-                        self.wallet,
-                    )
-                    logger.info("set_weights on chain successfully!")
-                    self.uids = []
-                    self.weights = []
+                    if self.should_set_weights():
+                        self.load_state()
+                        self.subtensor.execute(
+                            bt.SetWeights(
+                                netuid=self.config.netuid,
+                                uids=self.uids,
+                                weights=[float(w) for w in self.weights],
+                            ),
+                            self.wallet,
+                        )
+                        logger.info("set_weights on chain successfully!")
+                        self.uids = []
+                        self.weights = []
 
-                # Sync metagraph.
-                self.sync()
+                    # Sync metagraph.
+                    self.sync()
 
-                self.step += 1
+                    self.step += 1
+
+                except KeyboardInterrupt:
+                    raise
+
+                # In case of unforeseen errors, log and continue with the next step.
+                except Exception as err:
+                    logger.error(f"Error during validation step {self.step}: {str(err)}")
+                    logger.debug(str(print_exception(type(err), err, err.__traceback__)))
+                    if self.should_exit:
+                        break
+                    time.sleep(12)
 
         # If someone intentionally stops the validator, it'll safely terminate operations.
         except KeyboardInterrupt:
             logger.info("Validator killed by keyboard interrupt.")
             exit()
-
-        # In case of unforeseen errors, the validator will log the error and continue operations.
-        except Exception as err:
-            logger.error(f"Error during validation: {str(err)}")
-            logger.debug(str(print_exception(type(err), err, err.__traceback__)))
 
     def run_in_background_thread(self):
         """
@@ -294,8 +306,9 @@ class BaseValidatorNeuron(BaseNeuron):
         # Copies state of metagraph before syncing.
         previous_hotkeys = copy.deepcopy(self.metagraph.hotkeys)
 
-        # Sync the metagraph.
-        self.metagraph = self.subtensor.subnets.metagraph(self.netuid)
+        # Sync the metagraph. Pinned below the finalized head + retried, so a
+        # reorg of the unfinalized tip cannot take the validator down.
+        self.metagraph = fetch_metagraph_with_retry(self.subtensor, self.netuid, commitments=False)
 
         # Check if the metagraph hotkeys have changed.
         if previous_hotkeys == self.metagraph.hotkeys:
