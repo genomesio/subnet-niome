@@ -157,28 +157,31 @@ class BaseMinerNeuron(BaseNeuron):
         # This loop maintains the miner's operations until intentionally stopped.
         try:
             while not self.should_exit:
-                neuron = self.metagraph.neurons[self.uid]
-                while (
-                    self.block - neuron.last_update
-                    < self.config.neuron.epoch_length
-                ):
-                    time.sleep(1)
-                    if self.should_exit:
-                        break
-                    # refresh neuron for updated last_update
+                try:
                     neuron = self.metagraph.neurons[self.uid]
+                    while (
+                        self.block - neuron.last_update
+                        < self.config.neuron.epoch_length
+                    ):
+                        time.sleep(1)
+                        if self.should_exit:
+                            break
+                        # refresh neuron for updated last_update
+                        neuron = self.metagraph.neurons[self.uid]
 
-                # Sync metagraph and potentially set weights.
-                self.sync()
-                self.step += 1
+                    # Sync metagraph and potentially set weights.
+                    self.sync()
+                    self.step += 1
+
+                except Exception as err:
+                    logger.warning("Miner step error (will retry): %s", err)
+                    logger.debug(traceback.format_exc())
+                    time.sleep(12)
 
         except KeyboardInterrupt:
             logger.info("Miner killed by keyboard interrupt.")
             server.should_exit = True
             exit()
-
-        except Exception as e:
-            logger.error(traceback.format_exc())
         finally:
             server.should_exit = True
 

@@ -18,7 +18,7 @@ AWS_S3_BUCKET = os.getenv("AWS_S3_BUCKET")
 TESTNET_UID = 289
 MAINNET_UID = 55
 
-FORWARD_TIMEOUT = 10
+FORWARD_TIMEOUT = 20
 
 
 # ---- Scoring Settings -----
