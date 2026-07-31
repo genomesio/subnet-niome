@@ -1,36 +1,68 @@
 import json
 import math
-import random
-
-from niome_subnet.genomics.model import (
-  Stage1Result,
-  Stage2Result,
-)
-from Bio.Seq import Seq
+import pickle
+import hashlib
+from pathlib import Path
+from collections import defaultdict
 from Bio import SeqIO
+from Bio.Seq import Seq
 
 from niome_subnet.utils.settings import (
-  CONTRACT_PATH,
-  CHR11_PATH,
-  INVALID_EXPERIMENTS_PATH,
-  MINER_SUBMISSION_PATH,
-  HBB_REFERENCE_PATH,
-  VALID_EXPERIMENTS_PATH,
+    HBB_REFERENCE_PATH,
+    CONTRACT_PATH,
+    CHR11_PATH,
+    MINER_SUBMISSION_PATH,
+    VALID_EXPERIMENTS_PATH,
+    INVALID_EXPERIMENTS_PATH,
+    KMER_CACHE_DIR,
 )
 
 
-# =========================================================
-# LOAD GENOME
-# =========================================================
+def build_kmer_index(seq, k=12):
+    index = defaultdict(list)
+    for i in range(len(seq) - k):
+        index[seq[i:i + k]].append(i)
+    return index
+
+
+def _hash_kmer_inputs(seq, k):
+    h = hashlib.md5()
+    h.update(seq.encode())
+    h.update(str(k).encode())
+    return h.hexdigest()
+
+
+def load_or_build_kmer_index(seq, k=12):
+    import os
+    os.makedirs(KMER_CACHE_DIR, exist_ok=True)
+    cache_key = _hash_kmer_inputs(seq, k)
+    cache_file = f"{KMER_CACHE_DIR}/kmer_{cache_key}.pkl"
+    if os.path.exists(cache_file):
+        with open(cache_file, "rb") as f:
+            return pickle.load(f)
+    index = build_kmer_index(seq, k)
+    with open(cache_file, "wb") as f:
+        pickle.dump(index, f)
+    return index
+
+
+REGION_ENERGY_OFFSETS = {
+    "5UTR_or_upstream": 0.05,
+    "exon1": 0.03,
+    "exon2": 0.03,
+    "exon3": 0.03,
+    "intron1": -0.03,
+    "intron2": -0.03,
+    "3UTR": 0.02,
+}
+
+
 def load_chr11(path):
     for record in SeqIO.parse(path, "fasta"):
         return str(record.seq)
     raise ValueError("chr11 not found")
 
 
-# =========================================================
-# BIOLOGY HELPERS
-# =========================================================
 def gc_content(seq):
     return sum(b in "GC" for b in seq) / max(1, len(seq))
 
@@ -43,11 +75,7 @@ def reverse_complement(seq):
     return str(Seq(seq).reverse_complement())
 
 
-# =========================================================
-# PAM CHECK
-# =========================================================
-def check_pam(seq, start, L, cas, strand="+"):
-
+def check_pam(seq, start, L, cas, strand):
     if start < 0 or start + L >= len(seq):
         return False, "out_of_bounds"
 
@@ -59,20 +87,10 @@ def check_pam(seq, start, L, cas, strand="+"):
         elif strand == "-":
             if start < 3:
                 return False, "out_of_bounds"
-            pam = seq[start-3:start]
-            pam = reverse_complement(pam)
+            pam = reverse_complement(seq[start-3:start])
         else:
             return False, "invalid_strand"
-        return (
-            len(pam) == 3 and pam[1:] == "GG",
-            "ok"
-        )
-
-    if cas == "Cas12a":
-        if start < 4:
-            return False, "out_of_bounds"
-        pam = seq[start - 4:start]
-        return (len(pam) == 4 and pam[:3] == "TTT"), "ok"
+        return (len(pam) == 3 and pam[1:] == "GG"), "ok"
 
     if cas == "Cas12a":
         if strand == "+":
@@ -82,20 +100,15 @@ def check_pam(seq, start, L, cas, strand="+"):
         elif strand == "-":
             if start + L + 4 > len(seq):
                 return False, "out_of_bounds"
-            pam = seq[start+L:start+L+4]
-            pam = reverse_complement(pam)
-        return (
-            len(pam)==4 and pam[:3]=="TTT",
-            "ok"
-        )
+            pam = reverse_complement(seq[start+L:start+L+4])
+        else:
+            return False, "invalid_strand"
+        return (len(pam) == 4 and pam[:3] == "TTT"), "ok"
 
     return False, "invalid_cas"
 
 
-# =========================================================
-# STAGE 1 — STRICT GATES ONLY
-# =========================================================
-def stage1(exp, seq, mutation_map, contract, gene_region_start, gene_region_end):
+def stage1(exp, seq, mutation_map, contract):
     guide = exp["guideRNA"]
     cas = exp["cas_system"]
     start = exp["target_alignment_start"]
@@ -104,65 +117,101 @@ def stage1(exp, seq, mutation_map, contract, gene_region_start, gene_region_end)
     if mutation not in contract["active_mutations"]:
         return 0.0, "mutation_not_allowed"
 
+    contract_cell_type = contract.get("cell_type")
+    if contract_cell_type is not None and exp.get("cell_type") != contract_cell_type:
+        return 0.0, "cell_type_mismatch"
+
     if len(guide) not in (20, 23):
         return 0.0, "invalid_length"
 
-    if start < gene_region_start or start + len(guide) > gene_region_end:
+    if exp.get("target_alignment_end") != start + len(guide):
+        return 0.0, "invalid_alignment_end"
+
+    if start < 0 or start + len(guide) >= len(seq):
         return 0.0, "out_of_bounds"
 
-    strand = exp.get("strand", "")
-    pam_ok, pam_status = check_pam(seq, start, len(guide), cas, strand)
+    pam_ok, pam_status = check_pam(seq, start, len(guide), cas, exp.get("strand"))
     if not pam_ok:
         return 0.0, f"pam_{pam_status}"
 
     target = seq[start:start+len(guide)]
-    if strand == "+":
-        mm = hamming(
-            guide,
-            target
-        )
-    elif strand == "-":
-        mm = hamming(
-            reverse_complement(guide),
-            target
-        )
+    if exp["strand"] == "+":
+        mm = hamming(guide, target)
+    elif exp["strand"] == "-":
+        mm = hamming(reverse_complement(guide), target)
     else:
         return 0.0, "invalid_strand"
 
     if mm > contract["rules"]["max_mismatches"]:
         return 0.0, "too_many_mismatches"
 
+    if contract["rules"].get("proximity_gate", False):
+        max_dist = contract["rules"]["base_padding"]
+        dist_to_target = abs(start - mutation_map[mutation])
+        if dist_to_target > max_dist:
+            return 0.0, "mutation_too_far"
+
     return 1.0, "ok"
 
 
-# =========================================================
-# STAGE 2 — STRUCTURAL SCORE ONLY
-# =========================================================
-def stage2(exp, seq, mutation_map):
+def offtarget_uniqueness(guide, cas, kmer_index):
+    seed = guide[-12:] if cas == "Cas9" else guide[:12]
+    hits = len(kmer_index.get(seed, []))
+    if hits == 0:
+        return 1.0
+    elif hits <= 5:
+        return 0.7
+    elif hits <= 20:
+        return 0.4
+    else:
+        return 0.1
 
+
+def stage2(cell_types, exp, seq, mutation_map, contract, kmer_index):
     guide = exp["guideRNA"]
+    cas = exp["cas_system"]
     start = exp["target_alignment_start"]
-    mut = mutation_map[exp["mutation"]]
+    mutation = exp["mutation"]
+    mut = mutation_map[mutation]
 
     gc = gc_content(guide)
     dist = abs(start - mut)
 
     gc_score = max(0.0, 1.0 - abs(gc - 0.5) * 2)
-    dist_score = math.exp(-dist / 1200)
-    consistency = 1.0 if dist < 2000 else 0.3
+    base_padding = contract["rules"]["base_padding"]
+    dist_score = math.exp(-dist / base_padding)
+    consistency = 1.0 if dist < base_padding else 0.3
 
-    score = 0.5 * gc_score + 0.3 * dist_score + 0.2 * consistency
+    base_structural_score = 0.625 * gc_score + 0.375 * dist_score
+    offtarget_factor = offtarget_uniqueness(guide, cas, kmer_index)
+    structural_score = base_structural_score * offtarget_factor
 
-    return score, {
+    mutation_weight = contract.get("mutation_weights", {}).get(mutation, 1.0)
+    weighted_score = structural_score * mutation_weight
+
+    cell_type = contract.get("cell_type")
+    accessibility = cell_types.get(cell_type, {}).get("accessibility", 1.0)
+
+    mutation_region = contract.get("mutation_regions", {}).get(mutation)
+    region_energy_offset = REGION_ENERGY_OFFSETS.get(mutation_region, 0.0)
+
+    return structural_score, {
         "gc": gc,
         "distance": dist,
         "gc_score": gc_score,
         "dist_score": dist_score,
-        "consistency": consistency
+        "consistency": consistency,
+        "offtarget_factor": offtarget_factor,
+        "mutation_weight": mutation_weight,
+        "weighted_score": weighted_score,
+        "cell_type": cell_type,
+        "cell_type_accessibility": accessibility,
+        "mutation_region": mutation_region,
+        "region_energy_offset": region_energy_offset
     }
 
 
-def run_stage12() -> tuple[Stage1Result, Stage2Result]:
+def run_stage12(cell_types: dict, offtarget_flank: int = 50000) -> tuple[list, list]:
     reference = json.load(open(HBB_REFERENCE_PATH))
     contract = json.load(open(CONTRACT_PATH))
     submission = json.load(open(MINER_SUBMISSION_PATH))
@@ -170,29 +219,39 @@ def run_stage12() -> tuple[Stage1Result, Stage2Result]:
     seq = load_chr11(CHR11_PATH)
     mutation_map = reference["mutation_map"]
 
-    min_experiments = int(contract["rules"]["min_experiments"])
-    max_experiments = int(contract["rules"]["max_experiments"])
-
-    gene_region_start = int(reference["gene_region"]["start"])
-    gene_region_end = int(reference["gene_region"]["end"])
-
-    seed = int(reference["challenge"]["seed"])
-    random.seed(seed)
+    win_start = reference["gene_region"]["start"]
+    win_end = reference["gene_region"]["end"]
+    idx_start = max(0, win_start - offtarget_flank)
+    idx_end = min(len(seq), win_end + offtarget_flank)
+    kmer_index = load_or_build_kmer_index(seq[idx_start:idx_end], k=12)
 
     valid_experiments = []
-    valid_submission = []
     invalid_experiments = []
-    
-    selected_experiments = {}
+    seen_valid_keys = set()
 
-    stage2_logs = []
-
-    stage1_scores = []
-    stage2_scores = []
+    max_experiments = contract["rules"].get("max_experiments")
+    submission_oversized = max_experiments is not None and len(submission) > max_experiments
 
     for exp in submission:
-        s1, reason = stage1(exp, seq, mutation_map, contract, gene_region_start, gene_region_end)
-        stage1_scores.append(s1)
+        if submission_oversized:
+            invalid_experiments.append({
+                "experiment": exp,
+                "stage1_pass": False,
+                "reason": "submission_exceeds_max_experiments"
+            })
+            continue
+
+        s1, reason = stage1(exp, seq, mutation_map, contract)
+
+        if s1 == 1.0:
+            dup_key = (
+                exp["cas_system"], exp["target_alignment_start"],
+                exp.get("strand"), exp["guideRNA"]
+            )
+            if dup_key in seen_valid_keys:
+                s1, reason = 0.0, "duplicate_experiment"
+            else:
+                seen_valid_keys.add(dup_key)
 
         if s1 == 0.0:
             invalid_experiments.append({
@@ -202,72 +261,34 @@ def run_stage12() -> tuple[Stage1Result, Stage2Result]:
             })
             continue
 
-        mutation = exp.get("mutation", "")
-        cas_system = exp.get("cas_system", "")
-        target_alignment_start = int(exp.get("target_alignment_start", 0))
-        guide_length = len(exp.get("guideRNA", ""))
-        strand = exp.get("strand", "")
-        exp_key = (mutation, cas_system, target_alignment_start, guide_length, strand)
-        
-        if exp_key in selected_experiments:
-            continue
+        s2, s2_info = stage2(cell_types, exp, seq, mutation_map, contract, kmer_index)
 
-        selected_experiments[exp_key] = True
-
-        s2, s2_info = stage2(exp, seq, mutation_map)
-
-        stage2_scores.append(s2)
-        stage2_logs.append(s2_info)
-
-        valid_submission.append(exp)
         valid_experiments.append({
             "experiment": exp,
-
-            # CLEAN CONTRACT FOR STAGE 3 / 4
             "features": {
                 "gc": s2_info["gc"],
                 "distance_to_mutation": s2_info["distance"],
                 "gc_score": s2_info["gc_score"],
                 "dist_score": s2_info["dist_score"],
-                "consistency": s2_info["consistency"]
+                "consistency": s2_info["consistency"],
+                "offtarget_factor": s2_info["offtarget_factor"],
+                "mutation_weight": s2_info["mutation_weight"],
+                "cell_type": s2_info["cell_type"],
+                "cell_type_accessibility": s2_info["cell_type_accessibility"],
+                "mutation_region": s2_info["mutation_region"],
+                "region_energy_offset": s2_info["region_energy_offset"]
             },
-
-            "stage1": {
-                "valid": True
-            },
-
+            "stage1": {"valid": True},
             "stage2": {
-                "structural_score": s2
+                "structural_score": s2,
+                "weighted_score": s2_info["weighted_score"]
             }
         })
 
-    # =====================================================
-    # EXPORT (CRITICAL FOR STAGE 3 + 4)
-    # =====================================================
     with open(VALID_EXPERIMENTS_PATH, "w") as f:
         json.dump(valid_experiments, f, indent=2)
-    
-    with open(MINER_SUBMISSION_PATH, "w") as f:
-        json.dump(valid_submission, f, indent=2)
 
     with open(INVALID_EXPERIMENTS_PATH, "w") as f:
         json.dump(invalid_experiments, f, indent=2)
 
-    if len(stage1_scores) == 0:
-        stage1_scores.append(0.0)
-
-    stage1_result = Stage1Result(
-        min=min(stage1_scores),
-        max=max(stage1_scores),
-        mean=sum(stage1_scores) / len(stage1_scores),
-        valid=min(len(valid_experiments), max_experiments) * 1.0 / max_experiments,
-    )
-    
-    if len(valid_experiments) < min_experiments:
-        return stage1_result, None
-
-    return stage1_result, Stage2Result(
-        min=min(stage2_scores) if stage2_scores else 0.0,
-        max=max(stage2_scores) if stage2_scores else 0.0,
-        mean=sum(stage2_scores) / len(stage2_scores) if stage2_scores else 0.0
-    )
+    return valid_experiments, invalid_experiments

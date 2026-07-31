@@ -31,6 +31,7 @@ BASE_URL = "https://niome-api.genomes.io"
 MINER_SCORE_URL = f"{BASE_URL}/api/v3/miners/scores"
 MINER_SUBMISSION_URL = f"{BASE_URL}/api/v3/miners/submissions"
 TASK_URL = f"{BASE_URL}/api/v3/tasks/current"
+CELL_TYPES_URL = f"{BASE_URL}/api/v3/data/cell-types?format=json"
 
 
 # ---- Data -----
@@ -41,6 +42,10 @@ MINER_SUBMISSION_PATH = "data/submission.json"
 VALID_EXPERIMENTS_PATH = "data/valid_experiments.json"
 INVALID_EXPERIMENTS_PATH = "data/invalid_experiments.json"
 STAGE3_DATASET = "data/stage3_dataset.json"
+STAGE3_SUMMARY_PATH = "data/stage3_summary.json"
+FINAL_REWARD_PATH = "data/final_reward.json"
+DISTRIBUTION_FIDELITY_PATH = "data/distribution_fidelity_summary.json"
+KMER_CACHE_DIR = "data/kmer_cache"
 
 
 # ---- Timeout Values -----
@@ -60,6 +65,6 @@ BURNING_RATE = 0.02
 OWNER_HOTKEY = "5DJ5fT174AY8GzbYHnamYQCJd4cTcj2Zf7ogUvBhry1KfYVd"
 
 BASE_BLOCK_NUMBER = 7537400
-INTERVAL_BLOCKS = 360
-VALIDATION_BLOCK = 300
-WEIGHT_SET_BLOCK = 350
+INTERVAL_BLOCKS = 1800
+VALIDATION_BLOCK = 650
+WEIGHT_SET_BLOCK = 700

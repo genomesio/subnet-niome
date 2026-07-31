@@ -40,37 +40,9 @@ class SignedRequest(BaseModel, Generic[PayloadType]):
     signature: str
 
 
-class Stage1Result(BaseModel):
-    min: float
-    max: float
-    mean: float
-    valid: float
-
-
-class Stage2Result(BaseModel):
-    min: float
-    max: float
-    mean: float
-
-
-class Stage3Result(BaseModel):
-    n: int
-    cut_rate: float
-    mean_indel_length: float
-    mean_energy: float
-    outcomes: dict[str, int]
-
-
-class Stage4Result(BaseModel):
-    consistency_score: float
-
-
 class MinerScore(BaseModel):
     uid: int
-    stage1: Stage1Result | None
-    stage2: Stage2Result | None
-    stage3: Stage3Result | None
-    stage4: Stage4Result | None
+    breakdown: dict
     final_score: float
     log: str
 
@@ -80,10 +52,7 @@ class MinerScoreDto(BaseModel):
     task_id: str
     uid: int
     hotkey: str
-    stage1: float
-    stage2: float
-    stage3: float
-    stage4: float
+    breakdown: dict
     final_score: float
     log: str
     weight: float

@@ -27,6 +27,7 @@ import os
 import time
 
 from niome_subnet.api import (
+    fetch_cell_types,
     fetch_task,
     upload_final_submissions_to_server,
 )
@@ -107,6 +108,8 @@ async def run_validation(self):
         self.task_id = task.id
         logger.info(f"Fetched task {task.id}")
 
+        cell_types = fetch_cell_types(self)
+
         miner_uids = get_miner_uids(self)
         scores = []
 
@@ -129,7 +132,7 @@ async def run_validation(self):
                     f"niome/{uid}.json",
                     config.MINER_SUBMISSION_PATH,
                 )
-                miner_score = benchmark_submission(uid)
+                miner_score = benchmark_submission(cell_types, uid)
                 scores.append(miner_score)
                 self.save_state()
 
@@ -181,7 +184,7 @@ async def forward(self):
                 self.is_validating = False
                 self.is_broadcasting = True
                 asyncio.create_task(broadcast_task(self))
-            if blocks >= config.VALIDATION_BLOCK and not self.is_validating:
+            if blocks >= config.VALIDATION_BLOCK and blocks < config.WEIGHT_SET_BLOCK and not self.is_validating:
                 self.is_validating = True
                 self.is_broadcasting = False
                 self.are_weights_committed = False

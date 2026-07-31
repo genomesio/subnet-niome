@@ -111,6 +111,9 @@ def fetch_task(self) -> Task:
 
     return task
 
+def fetch_cell_types(self) -> dict:
+    return get(self, config.CELL_TYPES_URL)
+
 def submit_validation_result(self, miner_scores: list[MinerScoreDto]) -> None:
     """Submit miner scores with retry logic and fallback."""
     payload = {
