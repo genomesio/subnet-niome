@@ -104,7 +104,7 @@ class BaseNeuron(ABC):
         self.uids: list[int] = []
         self.weights: list[int] = []
         self.task_id: str = ""
-        self.validated_uids: list[int] = []
+        self.selected_uids: list[int] = []
         self.are_weights_committed: bool = False
 
         logger.info(f"Wallet: {self.wallet}")

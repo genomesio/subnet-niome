@@ -63,10 +63,12 @@ async def broadcast_task(self):
         os.makedirs("data", exist_ok=True)
 
         task = fetch_task(self)
-        self.task_id = task.id
         logger.info(f"Fetched task {task.id}")
 
-        self.validated_uids = []
+        if self.task_id != task.id:
+            self.selected_uids = []
+            self.task_id = task.id
+
         self.save_state()
 
         miner_uids = get_miner_uids(self)
@@ -80,6 +82,11 @@ async def broadcast_task(self):
         )
 
         for uid in miner_uids:
+            if uid in self.selected_uids:
+                continue
+
+            self.selected_uids.append(uid)
+
             neuron = self.metagraph.neurons[uid]
             axon_endpoint = neuron.axon
             if axon_endpoint is None:
@@ -121,11 +128,6 @@ async def run_validation(self):
         )
 
         for uid in miner_uids:
-            if uid in self.validated_uids:
-                continue
-
-            self.validated_uids.append(uid)
-
             try:
                 s3_client.download_file(
                     config.AWS_S3_BUCKET,
