@@ -111,9 +111,6 @@ async def run_validation(self):
     logger.info("Validating miners' submissions ...")
     try:
         os.makedirs("data", exist_ok=True)
-        task = fetch_task(self)
-        self.task_id = task.id
-        logger.info(f"Fetched task {task.id}")
 
         cell_types = fetch_cell_types(self)
 
