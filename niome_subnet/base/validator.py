@@ -336,7 +336,7 @@ class BaseValidatorNeuron(BaseNeuron):
                 step=self.step,
                 uids=self.uids,
                 weights=self.weights,
-                selected_uids=self.selected_uids,
+                collected_uids=self.collected_uids,
                 task_id=self.task_id,
             )
         except Exception as e:
@@ -355,7 +355,7 @@ class BaseValidatorNeuron(BaseNeuron):
                 self.weights = state["weights"].tolist()
             if "task_id" in state:
                 self.task_id = str(state["task_id"])
-            if "selected_uids" in state:
-                self.selected_uids = state["selected_uids"].tolist()
+            if "collected_uids" in state:
+                self.collected_uids = state["collected_uids"].tolist()
         except Exception as e:
             logger.error(f"Failed to load state with exception: {e}")

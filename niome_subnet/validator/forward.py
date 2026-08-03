@@ -66,7 +66,7 @@ async def broadcast_task(self):
         logger.info(f"Fetched task {task.id}")
 
         if self.task_id != task.id:
-            self.selected_uids = []
+            self.collected_uids = []
             self.task_id = task.id
 
         self.save_state()
@@ -82,10 +82,10 @@ async def broadcast_task(self):
         )
 
         for uid in miner_uids:
-            if uid in self.selected_uids:
+            if uid in self.collected_uids:
                 continue
 
-            self.selected_uids.append(uid)
+            self.collected_uids.append(uid)
 
             neuron = self.metagraph.neurons[uid]
             axon_endpoint = neuron.axon
