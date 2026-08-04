@@ -112,6 +112,7 @@ async def run_validation(self):
     try:
         os.makedirs("data", exist_ok=True)
 
+        fetch_task(self)
         cell_types = fetch_cell_types(self)
 
         miner_uids = get_miner_uids(self)
