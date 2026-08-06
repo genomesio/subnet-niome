@@ -229,18 +229,21 @@ def run_stage12(cell_types: dict, offtarget_flank: int = 50000) -> tuple[list, l
     invalid_experiments = []
     seen_valid_keys = set()
 
+    # Cut any experiments beyond max_experiments BEFORE validating rather than
+    # invalidating the whole submission. The overflow rows are recorded as invalid (for
+    # auditability) but the first max_experiments are scored normally, so
+    # n_valid_experiments reflects the truncated count, never the oversized total.
     max_experiments = contract["rules"].get("max_experiments")
-    submission_oversized = max_experiments is not None and len(submission) > max_experiments
-
-    for exp in submission:
-        if submission_oversized:
+    if max_experiments is not None and len(submission) > max_experiments:
+        for exp in submission[max_experiments:]:
             invalid_experiments.append({
                 "experiment": exp,
                 "stage1_pass": False,
                 "reason": "submission_exceeds_max_experiments"
             })
-            continue
+        submission = submission[:max_experiments]
 
+    for exp in submission:
         s1, reason = stage1(exp, seq, mutation_map, contract)
 
         if s1 == 1.0:

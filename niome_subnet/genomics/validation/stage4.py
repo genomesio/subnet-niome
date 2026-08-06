@@ -122,12 +122,39 @@ def run_stage4(n_folds: int = 5) -> dict:
     stage3 = flatten_stage3(load_json(STAGE3_DATASET))
     stage12 = flatten_stage12(load_json(VALID_EXPERIMENTS_PATH))
 
+    # No valid experiments (e.g. every row invalid, or an oversized submission whose overflow
+    # was cut) => empty stage12 with no columns to subset/merge. Score a clean zero instead of
+    # raising so a malformed submission is penalized, not crashed.
+    if len(stage12) == 0 or len(stage3) == 0:
+        output = {
+            "n_valid_experiments": 0,
+            "total_weighted_score": 0.0,
+            "consistency_score": 0.0,
+            "consistency_factor": 0.0,
+            "final_reward": 0.0,
+            "model_results": {}
+        }
+        with open(FINAL_REWARD_PATH, "w") as f:
+            json.dump(output, f, indent=2)
+        return output
+
     stage12_slim = stage12[["experiment_id", "guideRNA", "start", "stage2_score",
                              "mutation_weight", "weighted_score"]]
     df = stage3.merge(stage12_slim, on="experiment_id", how="inner")
 
     if len(df) == 0:
-        raise ValueError("Merge failed: no matching experiment_id between Stage 3 and Stage 12")
+        # Rows exist on both sides but no experiment_id matches (merge miss); same clean zero.
+        output = {
+            "n_valid_experiments": 0,
+            "total_weighted_score": 0.0,
+            "consistency_score": 0.0,
+            "consistency_factor": 0.0,
+            "final_reward": 0.0,
+            "model_results": {}
+        }
+        with open(FINAL_REWARD_PATH, "w") as f:
+            json.dump(output, f, indent=2)
+        return output
 
     X = build_X(df)
     y = build_y(df)
