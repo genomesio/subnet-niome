@@ -211,10 +211,28 @@ def stage2(cell_types, exp, seq, mutation_map, contract, kmer_index):
     }
 
 
+def truncate_submission(submission, contract):
+    """Keep only the first max_experiments rows, persisting the cut to the submission file.
+
+    Every later stage reads this file and scores whatever it finds, so an oversized submission
+    would otherwise be benchmarked in full and report both an n_valid_experiments and a
+    total_weighted_score covering more rows than the contract allows. Cutting the file itself
+    means the whole pipeline — and the submission archived afterwards — sees only the capped set.
+    """
+    max_experiments = contract["rules"].get("max_experiments")
+    if max_experiments is None or len(submission) <= max_experiments:
+        return submission
+
+    submission = submission[:max_experiments]
+    with open(MINER_SUBMISSION_PATH, "w") as f:
+        json.dump(submission, f, indent=2)
+    return submission
+
+
 def run_stage12(cell_types: dict, offtarget_flank: int = 50000) -> tuple[list, list]:
     reference = json.load(open(HBB_REFERENCE_PATH))
     contract = json.load(open(CONTRACT_PATH))
-    submission = json.load(open(MINER_SUBMISSION_PATH))
+    submission = truncate_submission(json.load(open(MINER_SUBMISSION_PATH)), contract)
 
     seq = load_chr11(CHR11_PATH)
     mutation_map = reference["mutation_map"]
@@ -228,20 +246,6 @@ def run_stage12(cell_types: dict, offtarget_flank: int = 50000) -> tuple[list, l
     valid_experiments = []
     invalid_experiments = []
     seen_valid_keys = set()
-
-    # Cut any experiments beyond max_experiments BEFORE validating rather than
-    # invalidating the whole submission. The overflow rows are recorded as invalid (for
-    # auditability) but the first max_experiments are scored normally, so
-    # n_valid_experiments reflects the truncated count, never the oversized total.
-    max_experiments = contract["rules"].get("max_experiments")
-    if max_experiments is not None and len(submission) > max_experiments:
-        for exp in submission[max_experiments:]:
-            invalid_experiments.append({
-                "experiment": exp,
-                "stage1_pass": False,
-                "reason": "submission_exceeds_max_experiments"
-            })
-        submission = submission[:max_experiments]
 
     for exp in submission:
         s1, reason = stage1(exp, seq, mutation_map, contract)
