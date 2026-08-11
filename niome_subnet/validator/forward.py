@@ -147,10 +147,11 @@ async def run_validation(self):
         logger.info(f"Scores: {scores}")
 
         self.set_weights(scores, self.task_id)
-        owner_uid = self.metagraph.hotkeys.index(config.OWNER_HOTKEY)
-        uids_without_owner = [uid for uid in self.uids if uid != owner_uid]
-        if len(uids_without_owner) > 0:
-            upload_final_submissions_to_server(self, uids_without_owner)
+        top_uids = [
+            s.uid for s in sorted(scores, key=lambda s: s.final_score, reverse=True)[:config.FINAL_SUBMISSION_COUNT]
+        ]
+        if len(top_uids) > 0:
+            upload_final_submissions_to_server(self, top_uids)
         logger.info("Finished validation.")
     except Exception as e:
         logger.error(f"Error during validation: {e}")
