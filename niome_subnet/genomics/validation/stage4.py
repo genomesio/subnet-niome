@@ -122,10 +122,11 @@ def run_stage4(n_folds: int = 5) -> dict:
     stage3 = flatten_stage3(load_json(STAGE3_DATASET))
     stage12 = flatten_stage12(load_json(VALID_EXPERIMENTS_PATH))
 
-    # No valid experiments (e.g. every row invalid, or an oversized submission whose overflow
-    # was cut) => empty stage12 with no columns to subset/merge. Score a clean zero instead of
-    # raising so a malformed submission is penalized, not crashed.
-    if len(stage12) == 0 or len(stage3) == 0:
+    # Too few valid experiments to cross-validate (every row invalid, or a submission whose
+    # overflow and duplicate experiment_ids were cut). Empty frames have no columns to
+    # subset/merge, and a single row cannot be split into KFold folds. Score a clean zero
+    # instead of raising so a malformed submission is penalized, not crashed.
+    if len(stage12) < 2 or len(stage3) < 2:
         output = {
             "n_valid_experiments": 0,
             "total_weighted_score": 0.0,

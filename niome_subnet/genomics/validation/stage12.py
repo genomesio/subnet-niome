@@ -212,21 +212,41 @@ def stage2(cell_types, exp, seq, mutation_map, contract, kmer_index):
 
 
 def truncate_submission(submission, contract):
-    """Keep only the first max_experiments rows, persisting the cut to the submission file.
+    """Cap the submission at max_experiments rows with unique experiment_ids, and persist the cut.
 
-    Every later stage reads this file and scores whatever it finds, so an oversized submission
-    would otherwise be benchmarked in full and report both an n_valid_experiments and a
-    total_weighted_score covering more rows than the contract allows. Cutting the file itself
-    means the whole pipeline — and the submission archived afterwards — sees only the capped set.
+    Two separate things have to be bounded here, because stage4 joins stage3 to stage12 on
+    experiment_id and sums weighted_score over the result:
+
+    - Row count. Every later stage reads this file and scores whatever it finds, so an
+      oversized submission would be benchmarked in full.
+    - experiment_id uniqueness. A repeated id turns that inner join into a cross product, so
+      a submission already inside the cap can still report an n_valid_experiments and a
+      total_weighted_score many times the allowed size (250 rows sharing 50 ids scores 1250).
+
+    Cutting the file itself means the whole pipeline — and the submission archived afterwards —
+    sees only the capped set.
     """
+    kept = []
+    seen_ids = set()
     max_experiments = contract["rules"].get("max_experiments")
-    if max_experiments is None or len(submission) <= max_experiments:
+
+    for exp in submission:
+        if max_experiments is not None and len(kept) >= max_experiments:
+            break
+        experiment_id = exp.get("experiment_id")
+        if not isinstance(experiment_id, str) or not experiment_id.strip():
+            continue
+        if experiment_id in seen_ids:
+            continue
+        seen_ids.add(experiment_id)
+        kept.append(exp)
+
+    if len(kept) == len(submission):
         return submission
 
-    submission = submission[:max_experiments]
     with open(MINER_SUBMISSION_PATH, "w") as f:
-        json.dump(submission, f, indent=2)
-    return submission
+        json.dump(kept, f, indent=2)
+    return kept
 
 
 def run_stage12(cell_types: dict, offtarget_flank: int = 50000) -> tuple[list, list]:
