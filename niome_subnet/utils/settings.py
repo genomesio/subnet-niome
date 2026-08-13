@@ -22,8 +22,8 @@ FORWARD_TIMEOUT = 20
 
 
 # ---- Scoring Settings -----
-TOP_MINER_COUNT = 0
-SCORE_DISTRIBUTION = []
+TOP_MINER_COUNT = 10
+SCORE_DISTRIBUTION = [0.3, 0.2, 0.2, 0.15, 0.05, 0.03, 0.025, 0.02, 0.015, 0.01]
 
 
 # ---- Backend Request -----
@@ -60,7 +60,7 @@ MAX_SUBMIT_RETRIES = 3
 
 WANDB_MAX_LOGS = 60_000
 
-SCORING_SYSTEM = "linear"  # "linear", "top"
+SCORING_SYSTEM = "top"  # "linear", "top"
 BURNING_RATE = 0.02
 OWNER_HOTKEY = "5DJ5fT174AY8GzbYHnamYQCJd4cTcj2Zf7ogUvBhry1KfYVd"
 
