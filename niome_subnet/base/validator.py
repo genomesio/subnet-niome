@@ -143,18 +143,7 @@ class BaseValidatorNeuron(BaseNeuron):
                         break
 
                     if self.should_set_weights():
-                        self.load_state()
-                        self.subtensor.execute(
-                            bt.SetWeights(
-                                netuid=self.config.netuid,
-                                uids=self.uids,
-                                weights=[float(w) for w in self.weights],
-                            ),
-                            self.wallet,
-                        )
-                        logger.info("set_weights on chain successfully!")
-                        self.uids = []
-                        self.weights = []
+                        pass
 
                     # Sync metagraph.
                     self.sync()
@@ -296,6 +285,17 @@ class BaseValidatorNeuron(BaseNeuron):
         self.uids, self.weights = convert_weights_and_uids_for_emit(
             uids=final_uids, weights=final_weight_values
         )
+
+        self.subtensor.execute(
+            bt.SetWeights(
+                netuid=self.config.netuid,
+                uids=self.uids,
+                weights=[float(w) for w in self.weights],
+            ),
+            self.wallet,
+        )
+        logger.info("set_weights on chain successfully!")
+
         self.save_state()
 
     def resync_metagraph(self):
