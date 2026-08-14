@@ -5,7 +5,7 @@
 # on the remote main branch.  All arguments are forwarded to run_validator.sh.
 #
 # Usage:
-#   pm2 start scripts/run_auto_update.sh --name niome-test-validator --no-autorestart \
+#   pm2 start scripts/run_auto_update.sh --name niome-validator --no-autorestart \
 #       -- --wallet.name <NAME> --wallet.hotkey <HOTKEY> [--wandb.api_key <KEY>]
 
 set -euo pipefail

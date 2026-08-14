@@ -73,14 +73,14 @@ else
     echo "[entrypoint] PM2 already installed: $(pm2 --version)"
 fi
 
-echo "[entrypoint] Starting niome-test-validator via PM2 …"
-if pm2 describe niome-test-validator &>/dev/null; then
-    echo "[entrypoint] Deleting existing niome-test-validator process …"
-    pm2 delete niome-test-validator
+echo "[entrypoint] Starting niome-validator via PM2 …"
+if pm2 describe niome-validator &>/dev/null; then
+    echo "[entrypoint] Deleting existing niome-validator process …"
+    pm2 delete niome-validator
 fi
 pm2 start "$SCRIPT_DIR/scripts/run_auto_update.sh" \
-    --name niome-test-validator \
+    --name niome-validator \
     --no-autorestart \
     -- "${VALIDATOR_ARGS[@]}"
 
-pm2 logs niome-test-validator
+pm2 logs niome-validator

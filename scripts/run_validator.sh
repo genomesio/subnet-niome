@@ -52,8 +52,8 @@ if [[ -z "$WALLET_HOTKEY" ]]; then
 fi
 
 VALIDATOR_ARGS=(
-    --netuid 289
-    --network test
+    --netuid 55
+    --network finney
     --wallet "$WALLET_NAME"
     --wallet-hotkey "$WALLET_HOTKEY"
 )
