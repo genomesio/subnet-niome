@@ -286,13 +286,12 @@ class BaseValidatorNeuron(BaseNeuron):
             uids=final_uids, weights=final_weight_values
         )
 
-        self.subtensor.execute(
-            bt.SetWeights(
-                netuid=self.config.netuid,
-                uids=self.uids,
-                weights=[float(w) for w in self.weights],
-            ),
-            self.wallet,
+        weights_dict = {int(uid): float(w) for uid, w in zip(self.uids, self.weights)}
+        bt.set_weights(
+            self.config.netuid,
+            weights_dict,
+            wallet=self.wallet,
+            version_key=self.spec_version,
         )
         logger.info("set_weights on chain successfully!")
 
