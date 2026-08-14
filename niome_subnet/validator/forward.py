@@ -67,6 +67,8 @@ async def broadcast_task(self):
 
         if self.task_id != task.id:
             self.collected_uids = []
+            self.seen_ips = []
+            self.seen_coldkeys = []
             self.task_id = task.id
 
         self.save_state()
@@ -85,12 +87,26 @@ async def broadcast_task(self):
             if uid in self.collected_uids:
                 continue
 
-            self.collected_uids.append(uid)
-
             neuron = self.metagraph.neurons[uid]
             axon_endpoint = neuron.axon
             if axon_endpoint is None:
                 continue
+
+            # One submission per machine and per owner: a coldkey running many
+            # hotkeys behind one IP must not get more shots at the task.
+            ip = str(axon_endpoint).rsplit(":", 1)[0]
+            coldkey = neuron.coldkey
+
+            if ip in self.seen_ips:
+                continue
+
+            if coldkey in self.seen_coldkeys:
+                continue
+
+            self.collected_uids.append(uid)
+            self.seen_ips.append(ip)
+            self.seen_coldkeys.append(coldkey)
+            self.save_state()
 
             presigned_url = s3_client.generate_presigned_url(
                 "put_object",
