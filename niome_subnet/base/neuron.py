@@ -72,7 +72,14 @@ class BaseNeuron(ABC):
         logging.basicConfig(
             level=logging.INFO,
             format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+            force=True,
         )
+        allowed_levels = {logging.INFO, logging.ERROR, logging.WARNING}
+        level_filter = lambda record: record.levelno in allowed_levels
+        for handler in logging.getLogger().handlers:
+            handler.addFilter(level_filter)
+        for noisy in ("httpx", "httpcore", "urllib3", "botocore", "boto3", "s3transfer"):
+            logging.getLogger(noisy).setLevel(logging.DEBUG)
 
         self.device = self.config.neuron.device
 
