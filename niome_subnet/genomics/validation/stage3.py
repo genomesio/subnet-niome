@@ -169,10 +169,10 @@ def simulate(exp, round_seed):
     }
 
 
-def run_stage3() -> tuple[list, dict]:
+def run_stage3(seed=None) -> tuple[list, dict]:
     with open(CONTRACT_PATH) as f:
         contract = json.load(f)
-    round_seed = contract["seed"]
+    round_seed = seed if seed is not None else contract["seed"]
 
     with open(VALID_EXPERIMENTS_PATH) as f:
         experiments = json.load(f)

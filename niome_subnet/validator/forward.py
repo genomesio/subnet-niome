@@ -67,8 +67,6 @@ async def broadcast_task(self):
 
         if self.task_id != task.id:
             self.collected_uids = []
-            self.seen_ips = []
-            self.seen_coldkeys = []
             self.task_id = task.id
 
         self.save_state()
@@ -97,15 +95,7 @@ async def broadcast_task(self):
             ip = str(axon_endpoint).rsplit(":", 1)[0]
             coldkey = neuron.coldkey
 
-            if ip in self.seen_ips:
-                continue
-
-            if coldkey in self.seen_coldkeys:
-                continue
-
             self.collected_uids.append(uid)
-            self.seen_ips.append(ip)
-            self.seen_coldkeys.append(coldkey)
             self.save_state()
 
             presigned_url = s3_client.generate_presigned_url(
@@ -187,13 +177,12 @@ async def forward(self):
         if config.BURNING_RATE == 1.0 and not self.are_weights_committed:
             self.are_weights_committed = True
             self.set_weights([], "")
-            self.subtensor.execute(
-                bt.SetWeights(
-                    netuid=self.config.netuid,
-                    uids=self.uids,
-                    weights=self.weights,
-                ),
-                self.wallet,
+            weights_dict = {int(uid): float(w) for uid, w in zip(self.uids, self.weights)}
+            bt.set_weights(
+                self.config.netuid,
+                weights_dict,
+                wallet=self.wallet,
+                version_key=self.spec_version,
             )
         else:
             blocks = (self.block - config.BASE_BLOCK_NUMBER) % config.INTERVAL_BLOCKS

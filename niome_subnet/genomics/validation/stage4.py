@@ -115,9 +115,12 @@ def normalized_mae(mae_mean, y_full):
     return mae_mean / scale
 
 
-def run_stage4(n_folds: int = 5) -> dict:
-    with open(CONTRACT_PATH) as f:
-        fold_seed = json.load(f)["seed"]
+def run_stage4(n_folds: int = 5, seed=None) -> dict:
+    if seed is not None:
+        fold_seed = seed
+    else:
+        with open(CONTRACT_PATH) as f:
+            fold_seed = json.load(f)["seed"]
 
     stage3 = flatten_stage3(load_json(STAGE3_DATASET))
     stage12 = flatten_stage12(load_json(VALID_EXPERIMENTS_PATH))
