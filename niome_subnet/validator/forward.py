@@ -24,7 +24,6 @@ import httpx
 import niome_subnet.utils.settings as config
 import numpy as np
 import os
-import time
 
 from niome_subnet.api import (
     fetch_cell_types,
@@ -199,4 +198,4 @@ async def forward(self):
     except Exception as e:
         logger.error(f"Error during forward step: {e}")
 
-    time.sleep(5)
+    await asyncio.sleep(5)
