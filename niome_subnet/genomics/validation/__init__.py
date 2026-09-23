@@ -1,21 +1,18 @@
-import json
-
 from niome_subnet.genomics.model import MinerScore
 from niome_subnet.genomics.validation.stage12 import run_stage12
 from niome_subnet.genomics.validation.stage3 import run_stage3
 from niome_subnet.genomics.validation.stage4 import run_stage4
 from niome_subnet.genomics.validation.stage5 import run_stage5
-from niome_subnet.utils.settings import CONTRACT_PATH
 
 
-def _parse_seeds(raw) -> list[int]:
-    """The task seed is a comma-joined string of round seeds, e.g. "122,321,431"."""
-    return [int(s) for s in str(raw).split(",") if s.strip() != ""]
+def benchmark_submission(cell_types: dict, uid: int, seeds: list[int]) -> MinerScore:
+    """Score one submission, averaged over `seeds`.
 
-
-def benchmark_submission(cell_types: dict, uid: int) -> MinerScore:
-    with open(CONTRACT_PATH) as f:
-        seeds = _parse_seeds(json.load(f)["seed"])
+    The seeds come from the caller (see `validator.forward.generate_seeds`), derived from
+    chain block hashes -- never from the task, which a miner can read.
+    """
+    if not seeds:
+        raise ValueError("benchmark_submission needs at least one seed")
 
     # Stage 12 is seed-independent, so run it once; stages 3-5 are re-run per seed.
     run_stage12(cell_types)

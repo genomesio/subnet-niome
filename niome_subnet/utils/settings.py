@@ -66,7 +66,17 @@ OWNER_HOTKEY = "5DJ5fT174AY8GzbYHnamYQCJd4cTcj2Zf7ogUvBhry1KfYVd"
 
 BASE_BLOCK_NUMBER = 8843300
 INTERVAL_BLOCKS = 720
-VALIDATION_BLOCK = 500
+SEED_BLOCK = 430
+VALIDATION_BLOCK = 450
 WEIGHT_SET_BLOCK = 700
 
+# ---- Round seeds -----
+# How many seeds a submission is benchmarked on, and the value range each is drawn from.
+# One seed per block hash, taken from the SEED_COUNT blocks ending just before
+# VALIDATION_BLOCK -- see niome_subnet.validator.forward.generate_seeds.
+SEED_COUNT = 3
+SEED_RANGE = (0, 1000)
+SEED_READ_ATTEMPTS = 5
+SEED_FINALITY_TIMEOUT = 180  # seconds; FINALITY_LAG blocks is ~48s on mainnet
+BLOCK_HASH_BYTES = 32
 FINAL_SUBMISSION_COUNT = 5
