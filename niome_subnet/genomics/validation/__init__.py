@@ -6,11 +6,7 @@ from niome_subnet.genomics.validation.stage5 import run_stage5
 
 
 def benchmark_submission(cell_types: dict, uid: int, seeds: list[int]) -> MinerScore:
-    """Score one submission, averaged over `seeds`.
-
-    The seeds come from the caller (see `validator.forward.generate_seeds`), derived from
-    chain block hashes -- never from the task, which a miner can read.
-    """
+    """Score one submission, averaged over `seeds`."""
     if not seeds:
         raise ValueError("benchmark_submission needs at least one seed")
 

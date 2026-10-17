@@ -13,6 +13,13 @@ AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 AWS_REGION = os.getenv("AWS_REGION")
 AWS_S3_BUCKET = os.getenv("AWS_S3_BUCKET")
 
+# ---- Google Drive Settings -----
+# Used only when the AWS settings above are not set.
+# Service account JSON key file; the root folder must be shared with its client_email.
+GOOGLE_SERVICE_ACCOUNT_FILE = os.path.expanduser(os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", ""))
+# ID of the Drive folder that submissions are stored under.
+GOOGLE_DRIVE_ROOT_FOLDER_ID = os.getenv("GOOGLE_DRIVE_ROOT_FOLDER_ID")
+
 
 # ---- General Settings -----
 TESTNET_UID = 289
@@ -27,7 +34,7 @@ SCORE_DISTRIBUTION = [0.3, 0.2, 0.2, 0.15, 0.05, 0.03, 0.025, 0.02, 0.015, 0.01]
 
 
 # ---- Backend Request -----
-BASE_URL = "https://niome-api.genomes.io"
+BASE_URL = "https://niome-leaderboard.genomes.io"
 MINER_SCORE_URL = f"{BASE_URL}/api/v3/miners/scores"
 MINER_SUBMISSION_URL = f"{BASE_URL}/api/v3/miners/submission-url"
 TASK_URL = f"{BASE_URL}/api/v3/tasks/current"
@@ -61,22 +68,15 @@ MAX_SUBMIT_RETRIES = 3
 WANDB_MAX_LOGS = 60_000
 
 SCORING_SYSTEM = "top"  # "linear", "top"
-BURNING_RATE = 0.02
+BURNING_RATE = 0.99
 OWNER_HOTKEY = "5DJ5fT174AY8GzbYHnamYQCJd4cTcj2Zf7ogUvBhry1KfYVd"
 
 BASE_BLOCK_NUMBER = 8843300
 INTERVAL_BLOCKS = 720
-SEED_BLOCK = 430
 VALIDATION_BLOCK = 450
 WEIGHT_SET_BLOCK = 700
 
 # ---- Round seeds -----
 # How many seeds a submission is benchmarked on, and the value range each is drawn from.
-# One seed per block hash, taken from the SEED_COUNT blocks ending just before
-# VALIDATION_BLOCK -- see niome_subnet.validator.forward.generate_seeds.
 SEED_COUNT = 3
 SEED_RANGE = (0, 1000)
-SEED_READ_ATTEMPTS = 5
-SEED_FINALITY_TIMEOUT = 180  # seconds; FINALITY_LAG blocks is ~48s on mainnet
-BLOCK_HASH_BYTES = 32
-FINAL_SUBMISSION_COUNT = 5

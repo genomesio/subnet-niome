@@ -32,7 +32,7 @@ The goal is not prediction, but **high-fidelity synthetic biological data genera
 
 2. **Task Distribution (Validators → Miners)** After receiving a task, validators broadcast it to miners on the subnet. Each miner receives the same challenge, ensuring fair and comparable evaluation across participants.
 
-3. **CRISPR Dataset Generation (Miners → Validators)** Miners generate lists of CRISPR experiments conforming to the task specification. Each experiment includes guide RNA sequences, target positions, mutation types, and Cas system choices. Miners upload their datasets to validator-provided S3 buckets.
+3. **CRISPR Dataset Generation (Miners → Validators)** Miners generate lists of CRISPR experiments conforming to the task specification. Each experiment includes guide RNA sequences, target positions, mutation types, and Cas system choices. Miners upload their datasets to validator-provided storage (an S3 bucket or a Google Drive folder) through an upload URL the validator sends them.
 
 4. **Multi-Stage Validation (Validators)** Validators evaluate miner submissions through a progressive validation pipeline:
    - **Stage 1:** Structural biological gate (syntactic correctness)

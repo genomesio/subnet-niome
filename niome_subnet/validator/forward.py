@@ -18,12 +18,12 @@
 
 import asyncio
 import logging
-import boto3
 import bittensor as bt
 import httpx
 import niome_subnet.utils.settings as config
 import numpy as np
 import os
+import random
 import time
 
 from niome_subnet.api import (
@@ -33,7 +33,8 @@ from niome_subnet.api import (
 )
 from niome_subnet.genomics.validation import benchmark_submission
 from niome_subnet.protocol import GenomicsTaskSynapse
-from niome_subnet.utils import get_miner_uids, generate_seeds
+from niome_subnet.storage import SubmissionTooLate, get_storage, submission_key
+from niome_subnet.utils import get_miner_uids
 
 logger = logging.getLogger(__name__)
 
@@ -74,12 +75,7 @@ async def broadcast_task(self):
         miner_uids = get_miner_uids(self)
         np.random.shuffle(miner_uids)
 
-        s3_client = boto3.client(
-            "s3",
-            aws_access_key_id=config.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=config.AWS_SECRET_ACCESS_KEY,
-            region_name=config.AWS_REGION,
-        )
+        storage = get_storage()
 
         for uid in miner_uids:
             if uid in self.collected_uids:
@@ -98,11 +94,7 @@ async def broadcast_task(self):
             self.collected_uids.append(uid)
             self.save_state()
 
-            presigned_url = s3_client.generate_presigned_url(
-                "put_object",
-                Params={"Bucket": config.AWS_S3_BUCKET, "Key": f"niome/{uid}.json"},
-                ExpiresIn=config.SUBMISSION_TIMEOUT,
-            )
+            presigned_url = storage.create_upload_url(submission_key(uid), config.SUBMISSION_TIMEOUT)
 
             synapse = GenomicsTaskSynapse(
                 task=task,
@@ -121,36 +113,27 @@ async def run_validation(self):
         fetch_task(self)
         cell_types = fetch_cell_types(self)
 
-        # Derived once per round: every submission is benchmarked on the same seeds.
-        seeds = generate_seeds(self.block, self.subtensor)
+        # Drawn once per round: every submission is benchmarked on the same seeds.
+        low, high = config.SEED_RANGE
+        seeds = random.sample(range(low, high + 1), config.SEED_COUNT)
         logger.info(f"Benchmarking this round on seeds {seeds}")
 
         miner_uids = get_miner_uids(self)
         scores = []
 
-        s3_client = boto3.client(
-            "s3",
-            aws_access_key_id=config.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=config.AWS_SECRET_ACCESS_KEY,
-            region_name=config.AWS_REGION,
-        )
+        storage = get_storage()
 
         for uid in miner_uids:
             try:
-                s3_client.download_file(
-                    config.AWS_S3_BUCKET,
-                    f"niome/{uid}.json",
-                    config.MINER_SUBMISSION_PATH,
-                )
+                storage.download_file(submission_key(uid), config.MINER_SUBMISSION_PATH)
                 miner_score = benchmark_submission(cell_types, uid, seeds)
                 scores.append(miner_score)
                 self.save_state()
 
-                s3_client.upload_file(
-                    Filename=config.MINER_SUBMISSION_PATH,
-                    Bucket=config.AWS_S3_BUCKET,
-                    Key=f"niome/{uid}.json",
-                )
+                storage.upload_file(config.MINER_SUBMISSION_PATH, submission_key(uid))
+            except SubmissionTooLate as e:
+                logger.warning(f"Skipping miner {uid}: {e}")
+                continue
             except Exception:
                 continue
 
@@ -188,7 +171,7 @@ async def forward(self):
                 wallet=self.wallet,
                 version_key=self.spec_version,
             )
-        else:
+        elif config.BURNING_RATE < 1.0:
             blocks = (self.block - config.BASE_BLOCK_NUMBER) % config.INTERVAL_BLOCKS
 
             if blocks < config.VALIDATION_BLOCK and not self.is_broadcasting:

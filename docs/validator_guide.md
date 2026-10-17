@@ -74,6 +74,14 @@ This section walks you through cloning the subnet-niome repository and installin
    docker run --rm hello-world
    ```
 
+5. **Configure Storage:** Miners upload their submissions to storage the validator provides. Copy `.env.example` to `.env` and fill in **one** of:
+
+   - **AWS S3:** `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_S3_BUCKET`. S3 is used whenever these are set.
+   - **Google Drive:** used when the AWS values are empty.
+     1. In Google Cloud, enable the Google Drive API and create a service account with a JSON key.
+     2. Create a folder in a **Shared Drive** and add the service account's `client_email` as a Content manager. (Service accounts have no storage of their own, so uploads into a regular "My Drive" folder fail.)
+     3. Set `GOOGLE_SERVICE_ACCOUNT_FILE` to the key file path and `GOOGLE_DRIVE_ROOT_FOLDER_ID` to the folder ID (the last part of the folder's URL).
+
 ### 3. Running the Validator
 
 Once your hotkey is registered, you can start your Validator.
