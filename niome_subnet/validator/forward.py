@@ -33,10 +33,12 @@ from niome_subnet.api import (
 )
 from niome_subnet.genomics.validation import benchmark_submission
 from niome_subnet.protocol import GenomicsTaskSynapse
-from niome_subnet.storage import SubmissionTooLate, get_storage, submission_key
+from niome_subnet.storage import SubmissionTooLarge, SubmissionTooLate, get_storage, submission_key
 from niome_subnet.utils import get_miner_uids
 
 logger = logging.getLogger(__name__)
+
+UPLOAD_URL_ATTEMPTS = 3
 
 
 async def query_miner(self, uid: int, axon_endpoint: str, synapse: GenomicsTaskSynapse):
@@ -57,6 +59,18 @@ async def query_miner(self, uid: int, axon_endpoint: str, synapse: GenomicsTaskS
     except Exception as e:
         logger.error(f"Error querying miner {uid} at {axon_endpoint}: {e}")
         return None
+
+async def create_upload_url_with_retry(storage, uid: int) -> str | None:
+    """Create a miner's upload URL, retrying transient storage errors. Returns None if every attempt fails."""
+    for attempt in range(1, UPLOAD_URL_ATTEMPTS + 1):
+        try:
+            return storage.create_upload_url(submission_key(uid), config.SUBMISSION_TIMEOUT)
+        except Exception as e:
+            logger.warning(f"Creating upload URL for miner {uid} failed (attempt {attempt}/{UPLOAD_URL_ATTEMPTS}): {e}")
+            if attempt < UPLOAD_URL_ATTEMPTS:
+                await asyncio.sleep(2 ** attempt)
+    logger.error(f"Skipping miner {uid} this broadcast: could not create an upload URL")
+    return None
 
 async def broadcast_task(self):
     logger.info("Broadcasting task ...")
@@ -91,14 +105,17 @@ async def broadcast_task(self):
             ip = str(axon_endpoint).rsplit(":", 1)[0]
             coldkey = neuron.coldkey
 
+            upload_url = await create_upload_url_with_retry(storage, uid)
+            if upload_url is None:
+                # Not marked as collected, so the next broadcast tries this miner again.
+                continue
+
             self.collected_uids.append(uid)
             self.save_state()
 
-            presigned_url = storage.create_upload_url(submission_key(uid), config.SUBMISSION_TIMEOUT)
-
             synapse = GenomicsTaskSynapse(
                 task=task,
-                presigned_url=presigned_url,
+                presigned_url=upload_url,
                 timeout=config.FORWARD_TIMEOUT,
             )
             await query_miner(self, uid, axon_endpoint, synapse)
@@ -131,14 +148,18 @@ async def run_validation(self):
                 self.save_state()
 
                 storage.upload_file(config.MINER_SUBMISSION_PATH, submission_key(uid))
-            except SubmissionTooLate as e:
+            except FileNotFoundError:
+                logger.info(f"Skipping miner {uid}: no submission found")
+                continue
+            except (SubmissionTooLate, SubmissionTooLarge) as e:
                 logger.warning(f"Skipping miner {uid}: {e}")
                 continue
-            except Exception:
+            except Exception as e:
+                logger.warning(f"Skipping miner {uid}: {type(e).__name__}: {e}")
                 continue
 
         valid_scores = [score for score in scores if score.final_score > 0]
-        logger.info(f"Scores: {valid_scores}")
+        logger.info(f"Scores: {[(s.uid, s.final_score) for s in valid_scores]}")
 
         self.set_weights(scores, self.task_id)
         valid_uids = [

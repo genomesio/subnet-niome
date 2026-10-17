@@ -13,7 +13,7 @@ import json
 import logging
 import time
 from datetime import datetime
-from functools import lru_cache
+from functools import lru_cache, wraps
 
 import boto3
 import requests
@@ -43,15 +43,24 @@ class S3Storage:
             ExpiresIn=expires,
         )
 
+    def _get_capped_object(self, key: str) -> dict:
+        obj = self.s3.get_object(Bucket=self.bucket, Key=key)
+        if obj["ContentLength"] > MAX_SUBMISSION_BYTES:
+            obj["Body"].close()
+            raise SubmissionTooLarge(f"{key} is {obj['ContentLength']} bytes")
+        return obj
+
     def download_file(self, key: str, path: str) -> None:
-        self.s3.download_file(self.bucket, key, path)
+        obj = self._get_capped_object(key)
+        with open(path, "wb") as f:
+            _copy_capped(obj["Body"].iter_chunks(1024 * 1024), f, key)
 
     def upload_file(self, path: str, key: str) -> None:
         self.s3.upload_file(Filename=path, Bucket=self.bucket, Key=key)
 
     def get_bytes(self, key: str) -> bytes:
         try:
-            return self.s3.get_object(Bucket=self.bucket, Key=key)["Body"].read()
+            return self._get_capped_object(key)["Body"].read()
         except ClientError as e:
             if e.response.get("Error", {}).get("Code") in ("NoSuchKey", "404"):
                 raise FileNotFoundError(key) from e
@@ -65,10 +74,60 @@ FOLDER_MIME = "application/vnd.google-apps.folder"
 DRIVE_TIMEOUT = 60  # seconds
 # Stored on each submission file so late uploads can be rejected (see below).
 DEADLINE_PROPERTY = "upload_deadline"
+# A valid submission (at most max_experiments = 250 rows) is far smaller than this.
+MAX_SUBMISSION_BYTES = 5 * 1024 * 1024
+READ_ATTEMPTS = 3
+TRANSIENT_STATUS = {429, 500, 502, 503, 504}
 
 
 class SubmissionTooLate(Exception):
     pass
+
+
+class SubmissionTooLarge(Exception):
+    pass
+
+
+def _copy_capped(chunks, f, key: str) -> None:
+    """Write chunks to f, stopping once more than MAX_SUBMISSION_BYTES has been read."""
+    written = 0
+    for chunk in chunks:
+        written += len(chunk)
+        if written > MAX_SUBMISSION_BYTES:
+            raise SubmissionTooLarge(f"{key} is larger than {MAX_SUBMISSION_BYTES} bytes")
+        f.write(chunk)
+
+
+def _is_transient(e: Exception) -> bool:
+    from google.auth.exceptions import TransportError
+
+    if isinstance(e, (requests.ConnectionError, requests.Timeout,
+                      requests.exceptions.ChunkedEncodingError, TransportError)):
+        return True
+    if isinstance(e, requests.HTTPError) and e.response is not None:
+        status = e.response.status_code
+        if status in TRANSIENT_STATUS:
+            return True
+        # Drive reports rate limiting as 403 with one of these reasons.
+        if status == 403 and ("rateLimitExceeded" in e.response.text
+                              or "userRateLimitExceeded" in e.response.text):
+            return True
+    return False
+
+
+def _retry_transient(fn):
+    """Retry a read on network errors, rate limits and 5xx responses. Other errors raise at once."""
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        for attempt in range(1, READ_ATTEMPTS + 1):
+            try:
+                return fn(*args, **kwargs)
+            except Exception as e:
+                if attempt == READ_ATTEMPTS or not _is_transient(e):
+                    raise
+                logger.warning(f"{fn.__name__} failed (attempt {attempt}/{READ_ATTEMPTS}), retrying: {e}")
+                time.sleep(2 ** attempt)
+    return wrapper
 
 
 def _escape_query(value: str) -> str:
@@ -117,7 +176,7 @@ class GoogleDriveStorage:
             query += f" and mimeType = '{mime_type}'"
         resp = self._request("GET", DRIVE_API, params={
             "q": query,
-            "fields": "files(id, modifiedTime, appProperties)",
+            "fields": "files(id, size, modifiedTime, appProperties)",
             "orderBy": "modifiedTime desc",
             "includeItemsFromAllDrives": "true",
         })
@@ -152,11 +211,12 @@ class GoogleDriveStorage:
             raise FileNotFoundError(key)
         return files[0]
 
-    def _start_update_session(self, file_id: str) -> str:
+    def _start_update_session(self, file_id: str, metadata: dict | None = None) -> str:
+        # Metadata sent here is applied together with the content when the upload completes.
         resp = self._request(
             "PATCH", f"{DRIVE_UPLOAD_API}/{file_id}",
             params={"uploadType": "resumable"},
-            json={},
+            json=metadata or {},
         )
         return resp.headers["Location"]
 
@@ -176,28 +236,39 @@ class GoogleDriveStorage:
         }).json()["id"]
         return self._start_update_session(file_id)
 
+    def _check_size(self, file: dict, key: str) -> None:
+        size = int(file.get("size") or 0)
+        if size > MAX_SUBMISSION_BYTES:
+            raise SubmissionTooLarge(f"{key} is {size} bytes")
+
+    @_retry_transient
     def download_file(self, key: str, path: str) -> None:
         file = self._find_file(key)
+        self._check_size(file, key)
         deadline = (file.get("appProperties") or {}).get(DEADLINE_PROPERTY)
         if deadline and _parse_drive_time(file["modifiedTime"]) > int(deadline):
             raise SubmissionTooLate(f"{key} was uploaded after its deadline")
 
         resp = self._request("GET", f"{DRIVE_API}/{file['id']}", params={"alt": "media"}, stream=True)
         with open(path, "wb") as f:
-            for chunk in resp.iter_content(chunk_size=1024 * 1024):
-                f.write(chunk)
+            # Backup check in case the reported size is missing or wrong.
+            _copy_capped(resp.iter_content(chunk_size=1024 * 1024), f, key)
 
     def upload_file(self, path: str, key: str) -> None:
         """Overwrite `key` with the local file. Clears the upload deadline, since the validator wrote it."""
         file = self._find_file(key)
-        self._request("PATCH", f"{DRIVE_API}/{file['id']}", json={
+        # Content and the cleared deadline land in one request, so a failed
+        # upload leaves the miner's file and its deadline untouched.
+        session_url = self._start_update_session(file["id"], {
             "appProperties": {DEADLINE_PROPERTY: None},
         })
         with open(path, "rb") as f:
-            requests.put(self._start_update_session(file["id"]), data=f, timeout=300).raise_for_status()
+            requests.put(session_url, data=f, timeout=300).raise_for_status()
 
+    @_retry_transient
     def get_bytes(self, key: str) -> bytes:
         file = self._find_file(key)
+        self._check_size(file, key)
         return self._request("GET", f"{DRIVE_API}/{file['id']}", params={"alt": "media"}).content
 
 
