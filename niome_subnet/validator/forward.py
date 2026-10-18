@@ -161,7 +161,7 @@ async def run_validation(self):
         valid_scores = [score for score in scores if score.final_score > 0]
         logger.info(f"Scores: {[(s.uid, s.final_score) for s in valid_scores]}")
 
-        self.set_weights(scores, self.task_id)
+        self.set_weights(valid_scores, self.task_id)
         valid_uids = [
             s.uid for s in sorted(valid_scores, key=lambda s: s.final_score, reverse=True)
         ]
