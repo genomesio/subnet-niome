@@ -106,10 +106,26 @@ def fetch_task(self) -> Task:
         logger.error("Invalid response: missing contract_url or hbb_ref_url")
         raise RuntimeError("Invalid response")
 
-    urllib.request.urlretrieve(task.contract_url, config.CONTRACT_PATH)
-    urllib.request.urlretrieve(task.hbb_ref_url, config.HBB_REFERENCE_PATH)
+    download_file(task.contract_url, config.CONTRACT_PATH)
+    download_file(task.hbb_ref_url, config.HBB_REFERENCE_PATH)
 
     return task
+
+def download_file(url: str, path: str) -> None:
+    """Download `url` to `path`, retrying transient storage errors (e.g. Drive 5xx)."""
+    for attempt in range(1, config.MAX_TASK_RETRIES + 1):
+        try:
+            with urllib.request.urlopen(url, timeout=config.TASK_REQUEST_TIMEOUT) as response:
+                data = response.read()
+            with open(path, "wb") as f:
+                f.write(data)
+            return
+        except Exception as e:
+            logger.error(f"Download of {path} failed (attempt {attempt}/{config.MAX_TASK_RETRIES}): {e}")
+            if attempt < config.MAX_TASK_RETRIES:
+                time.sleep(config.BASE_DELAY_SECONDS * (2 ** (attempt - 1)))
+            else:
+                raise
 
 def fetch_cell_types(self) -> dict:
     return get(self, config.CELL_TYPES_URL)
