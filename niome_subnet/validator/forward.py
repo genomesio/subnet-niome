@@ -33,12 +33,16 @@ from niome_subnet.api import (
 )
 from niome_subnet.genomics.validation import benchmark_submission
 from niome_subnet.protocol import GenomicsTaskSynapse
-from niome_subnet.storage import SubmissionTooLarge, SubmissionTooLate, get_storage, submission_key
+from niome_subnet.storage import SubmissionTooLarge, SubmissionTooLate, _is_transient, get_storage, submission_key
 from niome_subnet.utils import get_miner_uids
 
 logger = logging.getLogger(__name__)
 
-UPLOAD_URL_ATTEMPTS = 3
+UPLOAD_URL_ATTEMPTS = 5
+UPLOAD_URL_MAX_BACKOFF = 30  # seconds
+# Drive returns 500s when files are created in quick bursts, so space out creates.
+UPLOAD_URL_MIN_INTERVAL = 1.0  # seconds
+_last_upload_url_at = 0.0
 
 
 async def query_miner(self, uid: int, axon_endpoint: str, synapse: GenomicsTaskSynapse):
@@ -62,13 +66,22 @@ async def query_miner(self, uid: int, axon_endpoint: str, synapse: GenomicsTaskS
 
 async def create_upload_url_with_retry(storage, uid: int) -> str | None:
     """Create a miner's upload URL, retrying transient storage errors. Returns None if every attempt fails."""
+    global _last_upload_url_at
     for attempt in range(1, UPLOAD_URL_ATTEMPTS + 1):
+        wait = _last_upload_url_at + UPLOAD_URL_MIN_INTERVAL - time.monotonic()
+        if wait > 0:
+            await asyncio.sleep(wait)
+        _last_upload_url_at = time.monotonic()
         try:
             return storage.create_upload_url(submission_key(uid), config.SUBMISSION_TIMEOUT)
         except Exception as e:
             logger.warning(f"Creating upload URL for miner {uid} failed (attempt {attempt}/{UPLOAD_URL_ATTEMPTS}): {e}")
+            if not _is_transient(e):
+                break
             if attempt < UPLOAD_URL_ATTEMPTS:
-                await asyncio.sleep(2 ** attempt)
+                # Exponential backoff with jitter: about 2, 4, 8, 16s.
+                backoff = min(2 ** attempt, UPLOAD_URL_MAX_BACKOFF)
+                await asyncio.sleep(backoff + random.uniform(0, backoff / 2))
     logger.error(f"Skipping miner {uid} this broadcast: could not create an upload URL")
     return None
 
