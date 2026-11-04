@@ -6,8 +6,7 @@ import requests
 import time
 import urllib.request
 
-from niome_subnet.genomics.model import MinerScoreDto, Task
-from niome_subnet.storage import get_json, submission_key
+from niome_subnet.genomics.model import MinerScore, MinerScoreDto, Task
 
 logger = logging.getLogger(__name__)
 
@@ -137,37 +136,48 @@ def submit_validation_result(self, miner_scores: list[MinerScoreDto]) -> None:
     }
     post(self, config.MINER_SCORE_URL, payload)
 
-def upload_final_submissions_to_server(self, uids: list[int]) -> None:
-    """Download submissions by UIDs from storage (S3 or Google Drive), and upload to server."""
-    try:
-        submissions = []
+def upload_final_submissions_to_server(self, scores: list[MinerScore], submissions: dict[int, list]) -> None:
+    """Upload the scored submissions to the server, best first.
 
-        for uid in uids:
-            try:
-                submission_data = get_json(submission_key(uid))
-                submissions.append({
-                    "uid": int(uid),
-                    "submission": submission_data,
-                })
-            except Exception as e:
-                logger.error(f"Error processing UID {uid}: {e}")
+    The uploaded file is a JSON list ordered by final_score (highest first, ties broken
+    by lower uid), so its first entry is always the task's best submission.
+    `submissions` maps uid to the exact submission that uid was scored on.
+    """
+    try:
+        ranked = sorted(scores, key=lambda s: (-s.final_score, s.uid))
+        final_submissions = []
+
+        for rank, score in enumerate(ranked, start=1):
+            submission = submissions.get(score.uid)
+            if not submission:
+                logger.error(f"No scored submission kept for UID {score.uid}, skipping")
                 continue
+            final_submissions.append({
+                "rank": rank,
+                "uid": int(score.uid),
+                "final_score": float(score.final_score),
+                "submission": submission,
+            })
+
+        if not final_submissions:
+            logger.warning("No final submissions to upload")
+            return
 
         data = get(self, f"{config.MINER_SUBMISSION_URL}?task_id={self.task_id}")
         presigned_url = data["url"]
-        
+
         response = requests.put(
             presigned_url,
-            data=json.dumps(submissions),
+            data=json.dumps(final_submissions),
             headers={
                 "Content-Type": "application/json"
             },
             timeout=300,
         )
-        
+
         response.raise_for_status()
-        
-        logger.info("Successfully uploaded final submissions")
+
+        logger.info(f"Successfully uploaded {len(final_submissions)} final submissions")
     except Exception as e:
         logger.error(f"Error in upload_final_submissions_to_server: {e}")
         raise e

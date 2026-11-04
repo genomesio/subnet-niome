@@ -17,6 +17,7 @@
 # DEALINGS IN THE SOFTWARE.
 
 import asyncio
+import json
 import logging
 import bittensor as bt
 import httpx
@@ -150,6 +151,10 @@ async def run_validation(self):
 
         miner_uids = get_miner_uids(self)
         scores = []
+        # The exact submission each score was computed on (after stage 1-2 truncation).
+        # Kept here rather than re-read from storage later, because the storage copy can
+        # change before the upload (e.g. the next round's broadcast replaces it).
+        scored_submissions = {}
 
         storage = get_storage()
 
@@ -157,6 +162,8 @@ async def run_validation(self):
             try:
                 storage.download_file(submission_key(uid), config.MINER_SUBMISSION_PATH)
                 miner_score = benchmark_submission(cell_types, uid, seeds)
+                with open(config.MINER_SUBMISSION_PATH) as f:
+                    scored_submissions[uid] = json.load(f)
                 scores.append(miner_score)
                 self.save_state()
 
@@ -175,11 +182,8 @@ async def run_validation(self):
         logger.info(f"Scores: {[(s.uid, s.final_score) for s in valid_scores]}")
 
         self.set_weights(valid_scores, self.task_id)
-        valid_uids = [
-            s.uid for s in sorted(valid_scores, key=lambda s: s.final_score, reverse=True)
-        ]
-        if len(valid_uids) > 0:
-            upload_final_submissions_to_server(self, valid_uids)
+        if len(valid_scores) > 0:
+            upload_final_submissions_to_server(self, valid_scores, scored_submissions)
         logger.info("Finished validation.")
     except Exception as e:
         logger.error(f"Error during validation: {e}")
