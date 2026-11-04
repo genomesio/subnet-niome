@@ -30,6 +30,7 @@ import time
 from niome_subnet.api import (
     fetch_cell_types,
     fetch_task,
+    report_round_seeds,
     upload_final_submissions_to_server,
 )
 from niome_subnet.genomics.validation import benchmark_submission
@@ -141,13 +142,16 @@ async def run_validation(self):
     try:
         os.makedirs("data", exist_ok=True)
 
-        fetch_task(self)
+        task = fetch_task(self)
         cell_types = fetch_cell_types(self)
 
         # Drawn once per round: every submission is benchmarked on the same seeds.
         low, high = config.SEED_RANGE
         seeds = random.sample(range(low, high + 1), config.SEED_COUNT)
         logger.info(f"Benchmarking this round on seeds {seeds}")
+        # Sent to the server before scoring so the leaderboard can show which seeds
+        # this round's scores were computed on. A failure here is logged, not fatal.
+        report_round_seeds(self, self.task_id or task.id, seeds)
 
         miner_uids = get_miner_uids(self)
         scores = []

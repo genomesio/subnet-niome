@@ -129,6 +129,25 @@ def download_file(url: str, path: str) -> None:
 def fetch_cell_types(self) -> dict:
     return get(self, config.CELL_TYPES_URL)
 
+def report_round_seeds(self, task_id: str, seeds: list[int]) -> bool:
+    """Tell the server which seeds this round's submissions are benchmarked on.
+
+    The server stores them on the task (per validator) so the leaderboard can show
+    them next to the scores. Returns False instead of raising when the server can't
+    be reached: validation must still run and set weights even if reporting fails.
+    """
+    payload = {
+        "task_id": task_id,
+        "seeds": [int(seed) for seed in seeds],
+    }
+    try:
+        post(self, config.TASK_SEEDS_URL, payload)
+        logger.info(f"Reported round seeds {payload['seeds']} for task {task_id}")
+        return True
+    except Exception as e:
+        logger.error(f"Could not report round seeds for task {task_id}: {e}")
+        return False
+
 def submit_validation_result(self, miner_scores: list[MinerScoreDto]) -> None:
     """Submit miner scores with retry logic and fallback."""
     payload = {

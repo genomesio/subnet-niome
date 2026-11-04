@@ -38,6 +38,7 @@ BASE_URL = "https://niome-leaderboard.genomes.io"
 MINER_SCORE_URL = f"{BASE_URL}/api/v3/miners/scores"
 MINER_SUBMISSION_URL = f"{BASE_URL}/api/v3/miners/submission-url"
 TASK_URL = f"{BASE_URL}/api/v3/tasks/current"
+TASK_SEEDS_URL = f"{BASE_URL}/api/v3/tasks/seeds"
 CELL_TYPES_URL = f"{BASE_URL}/api/v3/data/cell-types?format=json"
 
 
