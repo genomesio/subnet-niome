@@ -149,9 +149,6 @@ async def run_validation(self):
         low, high = config.SEED_RANGE
         seeds = random.sample(range(low, high + 1), config.SEED_COUNT)
         logger.info(f"Benchmarking this round on seeds {seeds}")
-        # Sent to the server before scoring so the leaderboard can show which seeds
-        # this round's scores were computed on. A failure here is logged, not fatal.
-        report_round_seeds(self, self.task_id or task.id, seeds)
 
         miner_uids = get_miner_uids(self)
         scores = []
@@ -189,6 +186,9 @@ async def run_validation(self):
         if len(valid_scores) > 0:
             upload_final_submissions_to_server(self, valid_scores, scored_submissions)
         logger.info("Finished validation.")
+
+        # Sent to the server after scoring so the leaderboard can show which seeds
+        report_round_seeds(self, self.task_id or task.id, seeds)
     except Exception as e:
         logger.error(f"Error during validation: {e}")
 
