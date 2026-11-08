@@ -179,6 +179,14 @@ async def run_validation(self):
                 logger.warning(f"Skipping miner {uid}: {type(e).__name__}: {e}")
                 continue
 
+        # Flag byte-identical submissions shared across uids (possible copying/collusion).
+        by_payload = {}
+        for uid, submission in scored_submissions.items():
+            by_payload.setdefault(json.dumps(submission, sort_keys=True), []).append(uid)
+        for shared_uids in by_payload.values():
+            if len(shared_uids) > 1:
+                logger.warning(f"Identical submission shared across uids {sorted(shared_uids)}")
+
         valid_scores = [score for score in scores if score.final_score > 0]
         logger.info(f"Scores: {[(s.uid, s.final_score) for s in valid_scores]}")
 
