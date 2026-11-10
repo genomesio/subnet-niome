@@ -80,4 +80,4 @@ WEIGHT_SET_BLOCK = 1000
 # ---- Round seeds -----
 # How many seeds a submission is benchmarked on, and the value range each is drawn from.
 SEED_COUNT = 3
-SEED_RANGE = (0, 1000)
+SEED_RANGE = (0, 1000000)
